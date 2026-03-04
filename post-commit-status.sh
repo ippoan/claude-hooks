@@ -8,16 +8,14 @@ if echo "$command" | grep -q "git commit"; then
   status=$(cd "$cwd" && git status --short 2>/dev/null)
 
   if [ -n "$status" ]; then
-    # JSON内の改行をエスケープ
-    escaped_status=$(echo "$status" | sed ':a;N;$!ba;s/\n/\\n/g')
-    cat <<EOF
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PostToolUse",
-    "additionalContext": "【git status (未コミット)】\n${escaped_status}"
-  }
-}
-EOF
+    # jq で安全に JSON 生成（特殊文字を自動エスケープ）
+    jq -n --arg ctx "【git status (未コミット)】
+$status" '{
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse",
+        additionalContext: $ctx
+      }
+    }'
   fi
 fi
 exit 0
