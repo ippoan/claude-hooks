@@ -37,16 +37,18 @@ if echo "$COMMAND" | grep -qE 'git checkout\s+(main|origin/\S+)\s+--\s'; then
   exit 0
 fi
 
-# git checkout main / git switch main を検出 → 常にブロック
-if echo "$COMMAND" | grep -qE 'git (checkout|switch)\s+(-b\s+\S+\s+)?main'; then
+# git checkout -b xxx main (ローカル main から新規ブランチ作成) のみブロック
+# 理由: ローカル main は古い可能性があるため origin/main を使うべき
+if echo "$COMMAND" | grep -qE 'git (checkout|switch)\s+-b\s+\S+\s+main\b'; then
   jq -n '{
     "hookSpecificOutput": {
       "hookEventName": "PreToolUse",
       "permissionDecision": "deny",
-      "permissionDecisionReason": "git checkout main は禁止です。新しいブランチが必要な場合は git worktree add -b <branch> .claude/worktrees/<name> main を使ってください。"
+      "permissionDecisionReason": "ローカル main から新規ブランチを切るのは禁止です (古い可能性あり)。origin/main を使ってください: git worktree add -b <branch> .claude/worktrees/<name> origin/main"
     }
   }'
   exit 0
 fi
 
+# 素の git checkout main / git switch main は許可 (dev 起動時など)
 exit 0

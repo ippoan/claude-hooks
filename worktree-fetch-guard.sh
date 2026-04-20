@@ -16,8 +16,9 @@ if ! echo "$COMMAND" | grep -q 'git worktree add'; then
   exit 0
 fi
 
-# origin/main をベースにしている場合は OK
-if echo "$COMMAND" | grep -qE 'origin/main'; then
+# origin/ プレフィックスのリモート参照をベースにしている場合は OK
+# origin/main (通常) + origin/fix/xxx (CI失敗時のリモートブランチ復元)
+if echo "$COMMAND" | grep -qE 'origin/'; then
   exit 0
 fi
 
