@@ -1,0 +1,14 @@
+{
+  "taskCompleted": {
+    "level": "sound+popup",
+    "sound": "Hero"
+  },
+  "needsPermission": {
+    "level": "sound+popup",
+    "sound": "Glass"
+  },
+  "asksQuestion": {
+    "level": "sound+popup",
+    "sound": "Funk"
+  }
+}

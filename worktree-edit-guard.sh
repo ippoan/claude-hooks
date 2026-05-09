@@ -57,6 +57,11 @@ case "$REL_PATH" in
   .github/*) exit 0 ;;
 esac
 
+# .gitignore で無視されるファイルは編集許可 (mail/, spec/ などの作業用ローカル領域)
+if (cd "$MATCHED_REPO" && git check-ignore -q "$REL_PATH" 2>/dev/null); then
+  exit 0
+fi
+
 # ブロック
 jq -n --arg path "$FILE_PATH" '{
   "hookSpecificOutput": {
