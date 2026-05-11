@@ -1,6 +1,6 @@
 {
   "taskCompleted": {
-    "level": "sound+popup",
+    "level": "sound",
     "sound": "Hero"
   },
   "needsPermission": {
