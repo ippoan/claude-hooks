@@ -22,16 +22,27 @@ INVOKES=false
 case "$TOOL_NAME" in
   Bash)
     CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""')
-    # tag-release.sh スクリプト直接呼び
-    if echo "$CMD" | grep -qE 'tag-release\.sh\b'; then
+    # 全パターン共通の anchor: 行頭 or shell separator (`;` / `&` / `&&` / `||` / `|`) 直後
+    # にコマンドが続く形だけ match させる (commit message 等の引数内文字列を deny しない)。
+    # 2026-05-12 に anchor 無しの単純 grep が commit message を誤検出する事故あり。
+    ANCHOR='(^|[;&|][[:space:]]*)'
+    # tag-release.sh スクリプト直接呼び (optional bash/sh wrapper + optional path prefix)
+    # ブロック: `bash ~/path/tag-release.sh`, `./tag-release.sh`, `tag-release.sh` 等
+    # 通過: `git commit -m "...tag-release.sh..."`, `echo "tag-release.sh"` 等
+    if echo "$CMD" | grep -qE "${ANCHOR}((bash|sh|zsh|exec|source)[[:space:]]+)?([^ ]*/)?tag-release\.sh\b"; then
       INVOKES=true
     fi
     # git tag -a v1.2.3 形式 (新規セマンティックバージョン tag)
-    if echo "$CMD" | grep -qE 'git tag (-[afsm][^ ]* )*v[0-9]+\.[0-9]+\.[0-9]+'; then
+    if echo "$CMD" | grep -qE "${ANCHOR}git tag (-[afsm][^ ]* )*v[0-9]+\.[0-9]+\.[0-9]+"; then
       INVOKES=true
     fi
     # git push origin v* (tag push)
-    if echo "$CMD" | grep -qE 'git push [^ ]+ v[0-9]+\.[0-9]+\.[0-9]+'; then
+    if echo "$CMD" | grep -qE "${ANCHOR}git push [^ ]+ v[0-9]+\.[0-9]+\.[0-9]+"; then
+      INVOKES=true
+    fi
+    # gh workflow run tag-release.yml (workflow_dispatch 経由)
+    # 例: gh workflow run tag-release.yml --repo owner/repo -f bump=patch
+    if echo "$CMD" | grep -qE "${ANCHOR}gh workflow run[[:space:]]+([^ ]*/)?tag-release\.yml\b"; then
       INVOKES=true
     fi
     ;;
