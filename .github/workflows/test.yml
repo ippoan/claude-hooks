@@ -1,0 +1,23 @@
+name: test
+
+on:
+  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  ci:
+    uses: ippoan/ci-workflows/.github/workflows/shell-ci.yml@main
+    with:
+      test_script: tests/test-worktree-naming-guard.sh
+      test_needs_gh: true
+      # SC1091: source の解決失敗を無視 (CI には sourced files が無い)
+      # SC2155: declare + assign in one line
+      # SC2086: 意図的な splitting
+      shellcheck_opts: "-e SC1091 -e SC2155 -e SC2086 -e SC2034"
+      # tests/ 配下は test runner として実行されるのでスキャンから除外
+      ignore_paths: "tests"
