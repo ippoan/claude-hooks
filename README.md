@@ -52,6 +52,7 @@ Claude Code 用 hook スクリプト集 (PreToolUse / PostToolUse / SessionStart
 | `session-start-memory-baseline.sh` | 前 session 以降に memory file が増えていれば警告 |
 | `session-start-sandbox-hint.sh` | Backend + Frontend 同時改修 (Incus + wt-quick) workflow hint を inject |
 | `session-start-secret-scan.sh` | `~/` 配下の `.env` backup 漏れを scan |
+| `session-start-install-skills.sh` | `yhonda-ohishi/{claude-skills,claude-hooks}` を `~/.claude/sources/` に shallow clone + skill を `~/.claude/skills/<name>` に symlink (TTL 1h、idempotent) |
 
 ### Notification
 
@@ -187,3 +188,67 @@ jobs:
 
 - 規約策定: [yhonda-ohishi/claude-skills#3](https://github.com/yhonda-ohishi/claude-skills/issues/3)
 - 本 hook の issue: [yhonda-ohishi/claude-hooks#2](https://github.com/yhonda-ohishi/claude-hooks/issues/2)
+
+---
+
+## `session-start-install-skills.sh` 詳細
+
+### 仕様
+
+SessionStart 時に `yhonda-ohishi/claude-skills` と `yhonda-ohishi/claude-hooks` を `~/.claude/sources/` に shallow clone (or `git pull --ff-only`) し、claude-skills 内の各 `SKILL.md` を `~/.claude/skills/<skill-name>` に symlink する。
+
+- **配置先**:
+  - sources: `~/.claude/sources/{claude-skills,claude-hooks}` (shallow git checkout)
+  - skill symlinks: `~/.claude/skills/<name>` → `~/.claude/sources/claude-skills/.../<name>`
+- **idempotent**: 既存 checkout は `git pull --ff-only`、既存 symlink は再 link、既存の非 symlink (= ユーザが手書きした skill) は触らない
+- **TTL**: 既定 1h (`CLAUDE_HOOKS_INSTALL_TTL` 秒で上書き)。TTL 内は network sync を skip し、symlink 更新のみ実施
+- **fail-open**: clone/pull 失敗時もセッションは継続 (additionalContext にエラー記録)
+- **hook 側 settings.json は変更しない**: hooks の登録は `~/.claude/settings.json` を user が手動で編集する (既存方針のまま)
+
+### 設定例
+
+`~/.claude/settings.json` の `hooks.SessionStart` に追加:
+
+```jsonc
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "/home/yhonda/.claude/hooks/session-start-install-skills.sh", "timeout": 30 }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`timeout` は 30s 推奨 (初回 clone のため、他 SessionStart hook の 5–10s より長め)。
+
+### 環境変数
+
+| 変数 | 既定値 | 用途 |
+|---|---|---|
+| `CLAUDE_HOOKS_INSTALL_TTL` | `3600` | network sync を skip する TTL (秒) |
+| `CLAUDE_HOOKS_SKILLS_URL` | `https://github.com/yhonda-ohishi/claude-skills.git` | claude-skills の clone URL を上書き (private fork 等) |
+| `CLAUDE_HOOKS_HOOKS_URL`  | `https://github.com/yhonda-ohishi/claude-hooks.git`  | claude-hooks の clone URL を上書き |
+
+### 手動テスト
+
+```bash
+HOOK=~/.claude/hooks/session-start-install-skills.sh
+
+# T1: 初回実行 (clone)
+rm -rf ~/.claude/sources ~/.claude/.install-skills-marker
+echo '{"source":"startup","cwd":"'$HOME'"}' | $HOOK | jq -r '.hookSpecificOutput.additionalContext'
+# → "cloned claude-skills" / "cloned claude-hooks" / "skills linked: N"
+
+# T2: TTL 内 (network skip)
+echo '{}' | $HOOK | jq -r '.hookSpecificOutput.additionalContext'
+# → "fresh within TTL (3600s) — skipped network sync"
+
+# T3: TTL 切れ (pull)
+rm -f ~/.claude/.install-skills-marker/last-run
+echo '{}' | $HOOK | jq -r '.hookSpecificOutput.additionalContext'
+# → "pulled claude-skills" (差分なしでも exit 0)
+```
