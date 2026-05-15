@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # SessionStart hook — ADR-003 Phase C/D smoke-test enabler for ippoan/cc-relay.
 #
-# Builds `rust-mcp-agent` and, if a cached MCP token + broker env vars are
-# present, launches `rust-mcp-agent relay` in the background so the next
-# `tools/list` from Claude.ai's connector lands on a live host-side broker
-# (Anthropic → mcp(-staging).ippoan.org DO → WS → this process →
-# GitHubBroker → api.github.com).
+# Downloads the prebuilt `rust-mcp-agent` musl static binary from the latest
+# `ippoan/cc-relay` GitHub Release into `~/.cache/cc-relay/bin/` and, if a
+# cached MCP token + broker env vars are present, launches
+# `rust-mcp-agent relay` in the background so the next `tools/list` from
+# Claude.ai's connector lands on a live host-side broker (Anthropic →
+# mcp(-staging).ippoan.org DO → WS → this process → GitHubBroker →
+# api.github.com).
 #
 # Designed to be referenced from any cc-relay clone via:
 #
@@ -21,16 +23,22 @@
 #   }
 #
 # Only runs in Claude Code on Web (`CLAUDE_CODE_REMOTE=true`); skips locally
-# so a long `cargo build --release` doesn't fire on every dev session.
+# so we don't touch developer machines on every dev session.
 #
-# Idempotent: re-runs build (cargo no-ops if up to date) and skips relay
-# start if a `rust-mcp-agent relay` process is already up.
+# Idempotent: subsequent sessions reuse the cached binary (cheap `curl -I`
+# round-trip resolves "latest" -> tag) and skip relay start if a
+# `rust-mcp-agent relay` process is already up.
 #
 # Required for the relay to actually start:
 #   - File:  ~/.cc-relay/token       (written by `rust-mcp-agent auth`)
 #   - Env:   CC_RELAY_BROKER_REPO    (e.g. ippoan/cc-relay)
 #   - Env:   CC_RELAY_BROKER_ISSUE   (broker Issue number)
 #   - Env:   CC_RELAY_BROKER_TOKEN   (GitHub PAT or installation token)
+#
+# Optional env (binary acquisition):
+#   - CCR_AGENT_RELEASE_TAG    Pin to a specific tag (default: latest)
+#   - CCR_AGENT_BINARY_URL     Full URL override (skips tag resolution)
+#   - CCR_AGENT_FORCE_REFRESH  Set non-empty to re-download even if cached
 #
 # Anything missing → hook prints what's needed and exits 0 (does NOT block
 # the session). Logs go to ~/.cc-relay/relay.log; tail it from the session
@@ -52,18 +60,53 @@ fi
 
 cd "$CLAUDE_PROJECT_DIR"
 
-# 1. Build the binary. First session is cold (~2 min); subsequent runs hit
-#    the container build cache and finish in seconds.
-echo "[cc-relay-broker] building rust-mcp-agent (release)..." >&2
-cargo build --release -p agent-cli >&2
+# 1. Fetch the prebuilt binary from GitHub Releases. The musl static target
+#    has no system dependencies so it just works inside the sandbox; only
+#    network round-trip is needed (~5 MB) instead of a ~2 min cold cargo
+#    build.
+ASSET="rust-mcp-agent-x86_64-linux-musl"
+TAG="${CCR_AGENT_RELEASE_TAG:-latest}"
+if [[ -n "${CCR_AGENT_BINARY_URL:-}" ]]; then
+  BIN_URL="${CCR_AGENT_BINARY_URL}"
+elif [[ "$TAG" == "latest" ]]; then
+  BIN_URL="https://github.com/ippoan/cc-relay/releases/latest/download/${ASSET}"
+else
+  BIN_URL="https://github.com/ippoan/cc-relay/releases/download/${TAG}/${ASSET}"
+fi
 
-BIN="${CLAUDE_PROJECT_DIR}/target/release/rust-mcp-agent"
+CACHE_DIR="${HOME}/.cache/cc-relay/bin"
+mkdir -p "$CACHE_DIR"
+BIN="${CACHE_DIR}/rust-mcp-agent"
+
+if [[ ! -x "$BIN" ]] || [[ -n "${CCR_AGENT_FORCE_REFRESH:-}" ]]; then
+  echo "[cc-relay-broker] fetching rust-mcp-agent from $BIN_URL ..." >&2
+  TMP="$(mktemp -d)"
+  trap 'rm -rf "$TMP"' EXIT
+  if ! curl -fsSL --retry 3 -o "$TMP/$ASSET" "$BIN_URL"; then
+    echo "[cc-relay-broker] failed to download $BIN_URL — relay not started" >&2
+    exit 0
+  fi
+  # Best-effort sha256 verification (skip silently if the .sha256 sibling
+  # isn't reachable — some env overrides may point at non-GH mirrors).
+  if curl -fsSL --retry 3 -o "$TMP/${ASSET}.sha256" "${BIN_URL}.sha256" 2>/dev/null; then
+    if ! (cd "$TMP" && sha256sum -c "${ASSET}.sha256" >/dev/null 2>&1); then
+      echo "[cc-relay-broker] sha256 mismatch on $ASSET — relay not started" >&2
+      exit 0
+    fi
+  else
+    echo "[cc-relay-broker] no .sha256 sidecar at ${BIN_URL}.sha256 — skipping verify" >&2
+  fi
+  mv "$TMP/$ASSET" "$BIN"
+  chmod +x "$BIN"
+  trap - EXIT
+  rm -rf "$TMP"
+  echo "[cc-relay-broker] rust-mcp-agent cached at $BIN" >&2
+fi
 
 # 2. Expose the binary on PATH so the user can just type `rust-mcp-agent ...`
 #    in the session shell. CLAUDE_ENV_FILE persists across the session.
 if [[ -n "${CLAUDE_ENV_FILE:-}" ]]; then
-  echo "export PATH=\"${CLAUDE_PROJECT_DIR}/target/release:\$PATH\"" \
-    >> "$CLAUDE_ENV_FILE"
+  echo "export PATH=\"${CACHE_DIR}:\$PATH\"" >> "$CLAUDE_ENV_FILE"
 fi
 
 LOG_DIR="${HOME}/.cc-relay"
