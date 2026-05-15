@@ -53,6 +53,7 @@ Claude Code 用 hook スクリプト集 (PreToolUse / PostToolUse / SessionStart
 | `session-start-sandbox-hint.sh` | Backend + Frontend 同時改修 (Incus + wt-quick) workflow hint を inject |
 | `session-start-secret-scan.sh` | `~/` 配下の `.env` backup 漏れを scan |
 | `session-start-install-skills.sh` | `yhonda-ohishi/{claude-skills,claude-hooks}` を `~/.claude/sources/` に shallow clone + skill を `~/.claude/skills/<name>` に symlink (TTL 1h、idempotent) |
+| `session-start-cc-relay-broker.sh` | ippoan/cc-relay 専用: `cargo build --release -p agent-cli` + `~/.cc-relay/token` + `CC_RELAY_BROKER_*` env が揃っていれば `rust-mcp-agent relay` を background 起動 (ADR-003 Phase C/D smoke test 用) |
 
 ### Notification
 
@@ -66,6 +67,7 @@ Claude Code 用 hook スクリプト集 (PreToolUse / PostToolUse / SessionStart
 | File | 役割 |
 |---|---|
 | `worktree-cleanup.sh` | merged worktree を手動で一括削除するツール |
+| `install.sh` | One-shot bootstrap: `claude-hooks` + `claude-skills` を `~/.claude/sources/` に clone + skills を symlink。`curl -fsSL .../install.sh \| bash` 形式または local 実行可。SessionStart 時点ではなく初期セットアップ用 (定期同期は `session-start-install-skills.sh` 側) |
 
 ---
 
