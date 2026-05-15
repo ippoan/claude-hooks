@@ -1,0 +1,49 @@
+name: branch-protection
+
+# Self-applying branch protection for `master`. Runs on:
+#   - manual `workflow_dispatch` (initial setup, or to re-assert after a
+#     manual UI tweak)
+#   - every `push` to `master` (defense against drift — last merged commit
+#     wins, so if someone disables a required check by hand it's restored
+#     on the next merge)
+#
+# Required status checks are the two jobs published by `test.yml`:
+#   - ci / shellcheck
+#   - ci / test (tests/test-worktree-naming-guard.sh)
+#
+# Uses the workflow's GITHUB_TOKEN with `administration: write` — no PAT
+# needed. The repo admin still has to flip "Allow auto-merge" in
+# Settings → General once (no API endpoint covers that toggle).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  # `administration: write` is required to update branch protection rules.
+  # Granted at the workflow level (not job level) for clarity.
+  administration: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply branch protection on master
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X PUT \
+            "repos/${{ github.repository }}/branches/master/protection" \
+            -H "Accept: application/vnd.github+json" \
+            -F required_status_checks[strict]=true \
+            -F required_status_checks[contexts][]='ci / shellcheck' \
+            -F required_status_checks[contexts][]='ci / test (tests/test-worktree-naming-guard.sh)' \
+            -F enforce_admins=false \
+            -f required_pull_request_reviews= \
+            -f restrictions= \
+            -F required_linear_history=false \
+            -F allow_force_pushes=false \
+            -F allow_deletions=false \
+            -F required_conversation_resolution=true
