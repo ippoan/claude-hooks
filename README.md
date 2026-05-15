@@ -54,6 +54,13 @@ Claude Code 用 hook スクリプト集 (PreToolUse / PostToolUse / SessionStart
 | `session-start-secret-scan.sh` | `~/` 配下の `.env` backup 漏れを scan |
 | `session-start-install-skills.sh` | `yhonda-ohishi/{claude-skills,claude-hooks}` を `~/.claude/sources/` に shallow clone + skill を `~/.claude/skills/<name>` に symlink (TTL 1h、idempotent) |
 | `session-start-cc-relay-broker.sh` | ippoan/cc-relay 専用: `cargo build --release -p agent-cli` + `~/.cc-relay/token` + `CC_RELAY_BROKER_*` env が揃っていれば `rust-mcp-agent relay` を background 起動 (ADR-003 Phase C/D smoke test 用) |
+| `session-start-cc-relay-wss.sh` | issue #8 / cc-relay#50 A 案: CCoW で `rust-mcp-agent probe` を background 起動 (WSS `/u/<owner>/connect`) + `mcp__cc_relay__get_pending_events` で hibernation 中の queue drain を Claude に instruct。詳細は本 README 末尾「cc-relay WSS hook」section |
+
+### UserPromptSubmit
+
+| Hook | 役割 |
+|---|---|
+| `user-prompt-submit-cc-relay-events.sh` | issue #8: probe log (`/tmp/cc-relay-probe-e2e.jsonl`) の差分から `kind:"event"` frame を抽出し、`delivery_id` de-dup の上で `<cc-relay-event …>` envelope として prompt context に inject |
 
 ### Notification
 
@@ -254,3 +261,114 @@ rm -f ~/.claude/.install-skills-marker/last-run
 echo '{}' | $HOOK | jq -r '.hookSpecificOutput.additionalContext'
 # → "pulled claude-skills" (差分なしでも exit 0)
 ```
+
+---
+
+## cc-relay WSS hook (`session-start-cc-relay-wss.sh` + `user-prompt-submit-cc-relay-events.sh`)
+
+参照: [yhonda-ohishi/claude-hooks#8](https://github.com/yhonda-ohishi/claude-hooks/issues/8) /
+[ippoan/cc-relay#50](https://github.com/ippoan/cc-relay/issues/50) A 案 PoC
+(commit [`ippoan/cc-relay@fea3dd0`](https://github.com/ippoan/cc-relay/commit/fea3dd0)).
+
+### 役割
+
+CCoW (Claude Code on the Web) で **GitHub webhook 発火 → cc-relay → Claude session への event 配信** を 2 経路で実現する:
+
+1. **Live path**: `session-start-cc-relay-wss.sh` が `rust-mcp-agent probe` を background 起動。
+   probe は `wss://mcp-staging.ippoan.org/u/<owner>/connect` に Bearer JWT で connect し、
+   `kind:"event"` frame を `/tmp/cc-relay-probe-e2e.jsonl` に append し続ける。
+   次の `UserPromptSubmit` で `user-prompt-submit-cc-relay-events.sh` が差分を読んで
+   `<cc-relay-event …>` envelope として session context に inject する。
+2. **Drain path**: 同じ SessionStart hook が `additionalContext` で Claude に
+   `mcp__cc_relay__list_watched_issues` + `mcp__cc_relay__get_pending_events` を呼ぶよう instruct する。
+   CCoW container hibernation 中 (probe 停止中) に積まれた event を auth-worker DO の server-side queue
+   (ADR-006, drop-oldest cap 500) から復旧する経路。
+
+両経路で同じ event が届いた場合は `delivery_id` で de-dup する (`~/.cc-relay/seen-deliveries.json`、24h TTL)。
+
+### 設定例 (`~/.claude/settings.json`)
+
+```jsonc
+{
+  "hooks": {
+    "SessionStart": [{
+      "hooks": [{
+        "type": "command",
+        "command": "$HOME/.claude/sources/claude-hooks/session-start-cc-relay-wss.sh",
+        "timeout": 5000
+      }]
+    }],
+    "UserPromptSubmit": [{
+      "hooks": [{
+        "type": "command",
+        "command": "$HOME/.claude/sources/claude-hooks/user-prompt-submit-cc-relay-events.sh",
+        "timeout": 3000
+      }]
+    }]
+  }
+}
+```
+
+### 前提条件
+
+| 項目 | 必須 / Optional | 既定値 |
+|---|---|---|
+| `~/.cc-relay/token` | 必須 (`rust-mcp-agent auth` で発行) | - |
+| `rust-mcp-agent` binary (PATH or `~/.cache/cc-relay/bin/`) | 必須 (`session-start-cc-relay-broker.sh` が配置) | - |
+| `CLAUDE_CODE_REMOTE=true` | 必須 (local dev は意図的に skip) | - |
+| `CC_RELAY_WS_URL` | optional | `wss://mcp-staging.ippoan.org/u/<owner>/connect` または `…/connect` |
+| `CC_RELAY_GH_LOGIN` or `~/.cc-relay/gh_login` | optional (per-user endpoint 解決用) | - |
+| `CC_RELAY_PROBE_LOG` | optional | `/tmp/cc-relay-probe-e2e.jsonl` |
+| `CC_RELAY_SEEN_TTL_SECS` | optional | `86400` (24h) |
+
+### 状態ファイル (すべて `~/.cc-relay/`)
+
+| File | 役割 |
+|---|---|
+| `probe.pid` | 実行中 probe の PID。double-start 防止 (`/proc/<pid>/cmdline` で argv 検証) |
+| `probe.cursor` | UserPromptSubmit hook が読んだ probe log の byte offset |
+| `seen-deliveries.json` | `{ "<delivery_id>": <unix_ts_seen>, … }`。24h TTL で prune |
+| `probe-hook.log` | SessionStart hook 自身の診断 log |
+| `probe-stderr.log` | probe binary の stderr |
+
+### Frame schema (probe → JSONL)
+
+probe は受信 frame をそのまま append する (`agent-mcp/src/probe.rs`):
+
+```json
+{
+  "received_at_ms": 1715774400000,
+  "frame": {
+    "kind": "event", "v": 1,
+    "delivery_id": "<github-delivery-uuid>",
+    "event_type": "issue_comment.created",
+    "owner": "ippoan", "repo": "cc-relay",
+    "issue_number": 50,
+    "received_at": "2026-05-15T15:31:15Z",
+    "payload": { "...full webhook payload..." }
+  }
+}
+```
+
+`kind != "event"` (hello / `_probe_ping` / `_probe_pong` / `_probe_connected` / `_probe_close` /
+`req` / `resp` / `notif` / unknown) は UserPromptSubmit hook で silent skip される。
+
+### 故障モード
+
+| 症状 | 検出方法 | 復旧 |
+|---|---|---|
+| **probe token 期限切れ** (JWT TTL 1h) | `probe-stderr.log` に `401 Unauthorized` + WS close。probe process は exit、`probe.pid` 残骸化 | 次 SessionStart で stale PID 検出 → 再起動を試行。JWT 自体は `rust-mcp-agent auth` で refresh が必要 (issue #8 follow-up: token refresh on expiry) |
+| **queue drop-oldest で event lost** | drain で取得した `delivery_id` 列と probe log の `delivery_id` 列に GitHub 側の連番 (timestamp) gap が出る | Claude が drain 結果を user に「hibernation 中に N 件 dropped (queue cap 500)」と報告する運用。auto-recover 手段は無い (GitHub Replay Webhook を user に促す) |
+| **`~/.cc-relay/token` 不在** (CCoW fallback) | SessionStart hook が `no token` を `probe-hook.log` に記録し silent exit | Live path 無効。Drain path のみ (cc-relay MCP server が設定済なら `get_pending_events` polling だけは動く)。`rust-mcp-agent auth` を 1 回手動で実行すれば次 session から両経路有効化 |
+| **`rust-mcp-agent` binary 不在** | hook log に `binary not found` | `session-start-cc-relay-broker.sh` を SessionStart に併設しておくと `~/.cache/cc-relay/bin/` へ fetch される |
+| **probe log truncated** (rotation 等) | cursor > size を検出 → cursor=0 にリセット | hook 側で auto-handle。replay された event は seen-deliveries.json で de-dup |
+| **delivery_id 欠落 frame** | hook が `_no_delivery_id_` 属性で envelope を emit し seen には記録しない | 設計上発生し得ない (webhook 経由 event は必ず delivery_id を持つ)。出現したら upstream bug — user に raise |
+
+### Test
+
+```bash
+bash tests/test-cc-relay-events.sh
+# T1–T7: UserPromptSubmit hook (envelope emission, de-dup, cursor, TTL, truncation)
+# T8–T9: SessionStart hook (no-token / local-dev short-circuit)
+```
+
