@@ -1,7 +1,20 @@
 #!/usr/bin/env bash
-# SessionStart hook: ensure yhonda-ohishi/{claude-skills,claude-hooks} are
-# checked out under ~/.claude/sources and symlink discovered skill dirs into
-# ~/.claude/skills/<name> so they are picked up as user-level skills.
+# SessionStart hook: ensure yhonda-ohishi/{claude-skills,claude-hooks} and
+# anthropics/skills are checked out under ~/.claude/sources and symlink
+# discovered skill dirs into ~/.claude/skills/<name> so they are picked up
+# as user-level skills.
+#
+# Why anthropics/skills is cloned locally:
+#   Claude Code on Web (Cowork) runs in ephemeral containers and does NOT
+#   mount UI-installed Anthropic skills (skill-creator / mcp-builder /
+#   canvas-design / etc.) into the container. See anthropics/claude-code
+#   issues #31542, #26254, #50669. Cloning the public anthropics/skills
+#   repo here is the only reliable way to make those skills available
+#   inside each session.
+#
+# Conflict policy: yhonda-ohishi/claude-skills wins over anthropics/skills
+#   when both define a skill with the same name (yhonda is processed first,
+#   anthropic is only linked into slots that are still empty).
 #
 # Idempotent: shallow clones the repos on first run; on subsequent runs runs
 # `git pull --ff-only` at most once per TTL window (default 1h). The pull is
@@ -19,6 +32,7 @@ TTL_SECONDS="${CLAUDE_HOOKS_INSTALL_TTL:-3600}"
 
 SKILLS_REPO_URL="${CLAUDE_HOOKS_SKILLS_URL:-https://github.com/yhonda-ohishi/claude-skills.git}"
 HOOKS_REPO_URL="${CLAUDE_HOOKS_HOOKS_URL:-https://github.com/yhonda-ohishi/claude-hooks.git}"
+ANTHROPIC_SKILLS_REPO_URL="${CLAUDE_HOOKS_ANTHROPIC_SKILLS_URL:-https://github.com/anthropics/skills.git}"
 
 log_lines=()
 log() { log_lines+=("$1"); }
@@ -57,32 +71,50 @@ sync_repo() {
   fi
 }
 
-sync_repo "claude-skills" "$SKILLS_REPO_URL" || true
-sync_repo "claude-hooks"  "$HOOKS_REPO_URL"  || true
+sync_repo "claude-skills" "$SKILLS_REPO_URL"           || true
+sync_repo "claude-hooks"  "$HOOKS_REPO_URL"            || true
+sync_repo "anthropic-skills" "$ANTHROPIC_SKILLS_REPO_URL" || true
 
-# Symlink every SKILL.md dir under claude-skills into ~/.claude/skills/<name>.
-# Sources scanned: top-level (<name>/SKILL.md) and the canonical project path
-# (.claude/skills/<name>/SKILL.md).
+# Symlink every SKILL.md dir into ~/.claude/skills/<name>.
+#   yhonda-ohishi/claude-skills — scanned first (wins on name conflicts)
+#   anthropics/skills           — only fills empty slots; never overwrites
+#
+# For each source, we re-link existing symlinks to track upstream moves and
+# create new symlinks for previously unseen skills. Non-symlink targets are
+# skipped (user-managed by hand).
 linked=0
 skipped_conflict=0
-if [[ -d "${SOURCES_DIR}/claude-skills" ]]; then
+
+# args: <source-dir> <allow-relink: 1|0>
+#   allow-relink=1 → re-point existing symlinks (used for yhonda, which owns
+#   the slot). allow-relink=0 → only create when slot is empty (used for
+#   anthropic, so user's overrides are never clobbered).
+link_skills_from() {
+  local source_dir="$1" allow_relink="$2"
+  [[ -d "$source_dir" ]] || return 0
   while IFS= read -r -d '' skill_md; do
+    local skill_dir skill_name target
     skill_dir="$(dirname "$skill_md")"
     skill_name="$(basename "$skill_dir")"
     target="${SKILLS_DIR}/${skill_name}"
     if [[ -L "$target" ]]; then
-      ln -sfn "$skill_dir" "$target"
-      linked=$((linked + 1))
+      if (( allow_relink == 1 )); then
+        ln -sfn "$skill_dir" "$target"
+        linked=$((linked + 1))
+      fi
     elif [[ ! -e "$target" ]]; then
       ln -s "$skill_dir" "$target"
       linked=$((linked + 1))
     else
       skipped_conflict=$((skipped_conflict + 1))
     fi
-  done < <(find "${SOURCES_DIR}/claude-skills" \
-              \( -path "${SOURCES_DIR}/claude-skills/.git" -prune \) -o \
+  done < <(find "$source_dir" \
+              \( -path "${source_dir}/.git" -prune \) -o \
               -name SKILL.md -print0 2>/dev/null)
-fi
+}
+
+link_skills_from "${SOURCES_DIR}/claude-skills"    1
+link_skills_from "${SOURCES_DIR}/anthropic-skills" 0
 
 date +%s > "$marker" 2>/dev/null || true
 
