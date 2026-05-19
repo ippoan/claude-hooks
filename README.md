@@ -4,6 +4,32 @@ Claude Code 用 hook スクリプト集 (PreToolUse / PostToolUse / SessionStart
 
 各スクリプトは `~/.claude/settings.json` の `hooks` セクションから呼び出される。**`~/.claude/settings.json` は git 管理外** のため、登録例は本 README に残す。
 
+## Quick start
+
+**Claude Code on the Web (CCoW)** — 環境の **Setup script** フィールドに以下 1 行を貼る:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yhonda-ohishi/claude-hooks/main/install.sh | bash
+```
+
+これだけで、container 作成時に以下が一気に実行される:
+
+1. `~/.claude/sources/{claude-hooks,claude-skills}` を shallow clone
+2. `~/.claude/skills/<name>` に skill を symlink
+3. `~/.claude/settings.json` に `session-start-install-skills.sh` を `CLAUDE_HOOKS_INSTALL_NETWORK=off` 付きで登録
+
+以降の session 開始 hook は **完全に network を叩かない** ので、CCoW proxy の allowlist 502 を踏まない。`~/.claude/sources/*` が消えた時 (= container 再生成) は、Setup script が再走するので自然に修復される。
+
+**Local dev** — `install.sh` を直接実行 (同じ動作):
+
+```bash
+bash install.sh
+# 既存の settings.json は touch したくない場合:
+CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
+```
+
+`install.sh` の SessionStart hook 登録は idempotent (`command` が一致するエントリだけを差し替え、他の SessionStart hook は保持)。
+
 ## Hook 一覧
 
 ### PreToolUse — Bash matcher

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # One-shot installer for yhonda-ohishi/{claude-hooks,claude-skills}.
 #
-# Usage (from a fresh sandbox or local dev box):
+# Usage (CCoW Setup script — paste the next line into the env's Setup script
+# field; runs ONCE per container, has full proxy network reach):
 #
 #   curl -fsSL https://raw.githubusercontent.com/yhonda-ohishi/claude-hooks/main/install.sh | bash
 #
-# Or, if claude-hooks is already cloned locally:
+# Local dev:
 #
 #   bash install.sh
 #
@@ -14,9 +15,21 @@
 #      ~/.claude/sources/{claude-hooks,claude-skills}.
 #   2. Symlinks every `SKILL.md` directory found under claude-skills into
 #      ~/.claude/skills/<name> so user-level skills auto-pick-up.
-#   3. Prints what it did. Does NOT register hooks in ~/.claude/settings.json
-#      — that is left to the caller (project-local settings or the global
-#      session-start-install-skills.sh meta-hook).
+#   3. Registers `session-start-install-skills.sh` in
+#      ~/.claude/settings.json with `CLAUDE_HOOKS_INSTALL_NETWORK=off`
+#      so each SessionStart only re-symlinks (no proxy calls / no 502 risk).
+#      Idempotent: re-runs replace the existing entry instead of duplicating.
+#
+# Network policy in CCoW:
+#   - install.sh (= Setup script): proxy reach, clones everything.
+#   - SessionStart hook: zero network. If `~/.claude/sources/*` were wiped
+#     somehow, the hook logs it but does not try to re-fetch — re-run the
+#     Setup script to repair.
+#
+# Opt-out env vars:
+#   CLAUDE_HOOKS_SKIP_SETTINGS=1   # don't touch ~/.claude/settings.json
+#   CLAUDE_HOOKS_HOOKS_URL=...     # private fork
+#   CLAUDE_HOOKS_SKILLS_URL=...
 #
 # Idempotent. Safe to re-run. Exits 0 on partial network failure (keeps any
 # existing checkouts).
@@ -25,6 +38,7 @@ set -euo pipefail
 CLAUDE_DIR="${CLAUDE_DIR:-${HOME}/.claude}"
 SOURCES_DIR="${CLAUDE_DIR}/sources"
 SKILLS_DIR="${CLAUDE_DIR}/skills"
+SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 
 HOOKS_REPO_URL="${CLAUDE_HOOKS_HOOKS_URL:-https://github.com/yhonda-ohishi/claude-hooks.git}"
 SKILLS_REPO_URL="${CLAUDE_HOOKS_SKILLS_URL:-https://github.com/yhonda-ohishi/claude-skills.git}"
@@ -71,7 +85,43 @@ if [[ -d "${SOURCES_DIR}/claude-skills" ]]; then
 fi
 echo "  ✓ linked ${linked} skill(s) into ${SKILLS_DIR}"
 
+# Register the SessionStart hook in ~/.claude/settings.json (offline mode).
+# Skipped when CLAUDE_HOOKS_SKIP_SETTINGS=1, or when jq is unavailable.
+register_session_hook() {
+  [[ "${CLAUDE_HOOKS_SKIP_SETTINGS:-0}" == "1" ]] && {
+    echo "  ⊘ skipped settings.json (CLAUDE_HOOKS_SKIP_SETTINGS=1)"
+    return 0
+  }
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  ⚠ jq not installed — leaving ${SETTINGS_FILE} untouched" >&2
+    return 0
+  fi
+  [[ -f "$SETTINGS_FILE" ]] || echo '{}' > "$SETTINGS_FILE"
+  # Idempotent merge: ensure SessionStart contains exactly one entry whose
+  # `command` points at our hook. Other SessionStart hooks are preserved.
+  local cmd='$HOME/.claude/sources/claude-hooks/session-start-install-skills.sh'
+  local tmp="${SETTINGS_FILE}.tmp.$$"
+  jq --arg cmd "$cmd" '
+    .hooks //= {} |
+    .hooks.SessionStart //= [] |
+    # drop any prior entry that targets our hook (so re-runs replace, not stack)
+    .hooks.SessionStart |= map(
+      select((.hooks // []) | map(.command) | index($cmd) | not)
+    ) |
+    .hooks.SessionStart += [{
+      hooks: [{
+        type: "command",
+        command: $cmd,
+        timeout: 5000,
+        env: { CLAUDE_HOOKS_INSTALL_NETWORK: "off" }
+      }]
+    }]
+  ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
+  echo "  ✓ registered SessionStart hook in ${SETTINGS_FILE} (network=off)"
+}
+register_session_hook
+
 echo ""
-echo "Done. Hooks live under ${SOURCES_DIR}/claude-hooks/ — reference them"
-echo "from ~/.claude/settings.json or a project's .claude/settings.json"
-echo "via \$HOME/.claude/sources/claude-hooks/<script>.sh."
+echo "Done. SessionStart hook will run offline on every session and re-link"
+echo "skills from ${SOURCES_DIR}/. To repair after a container rebuild,"
+echo "re-run this installer from the Setup script."

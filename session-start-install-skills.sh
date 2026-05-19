@@ -16,9 +16,15 @@
 #   when both define a skill with the same name (yhonda is processed first,
 #   anthropic is only linked into slots that are still empty).
 #
-# Idempotent: shallow clones the repos on first run; on subsequent runs runs
-# `git pull --ff-only` at most once per TTL window (default 1h). The pull is
-# best-effort — network / auth failures do not block the session.
+# Network policy — `CLAUDE_HOOKS_INSTALL_NETWORK`:
+#   - `off` (recommended for CCoW): never invoke git. Only re-link skills.
+#     This is what install.sh registers, so the Setup script owns clone duty
+#     and the per-session hook becomes a zero-network re-symlink pass.
+#   - `auto` (default for local dev): clone only when sources/* is missing;
+#     never pull. Existing checkouts are trusted.
+#   - `force` (legacy TTL behaviour): clone if missing + `pull --ff-only`
+#     at most once per `CLAUDE_HOOKS_INSTALL_TTL` seconds. Use when you
+#     want every-session refresh on a machine with stable network.
 #
 # stdin:  SessionStart hook input JSON (ignored)
 # stdout: { hookSpecificOutput: { hookEventName, additionalContext } } JSON
@@ -29,6 +35,7 @@ SOURCES_DIR="${CLAUDE_DIR}/sources"
 SKILLS_DIR="${CLAUDE_DIR}/skills"
 MARKER_DIR="${CLAUDE_DIR}/.install-skills-marker"
 TTL_SECONDS="${CLAUDE_HOOKS_INSTALL_TTL:-3600}"
+NETWORK_POLICY="${CLAUDE_HOOKS_INSTALL_NETWORK:-auto}"
 
 SKILLS_REPO_URL="${CLAUDE_HOOKS_SKILLS_URL:-https://github.com/yhonda-ohishi/claude-skills.git}"
 HOOKS_REPO_URL="${CLAUDE_HOOKS_HOOKS_URL:-https://github.com/yhonda-ohishi/claude-hooks.git}"
@@ -39,10 +46,10 @@ log() { log_lines+=("$1"); }
 
 mkdir -p "$SOURCES_DIR" "$SKILLS_DIR" "$MARKER_DIR"
 
-# fresh? skip network calls until TTL elapses.
+# `force` mode honours the TTL marker; `auto` / `off` ignore it (no pulls).
 marker="${MARKER_DIR}/last-run"
 fresh=0
-if [[ -f "$marker" ]]; then
+if [[ "$NETWORK_POLICY" == "force" && -f "$marker" ]]; then
   now=$(date +%s)
   last=$(cat "$marker" 2>/dev/null || echo 0)
   if (( now - last < TTL_SECONDS )); then
@@ -54,14 +61,19 @@ sync_repo() {
   local name="$1" url="$2"
   local dir="${SOURCES_DIR}/${name}"
   if [[ -d "${dir}/.git" ]]; then
-    if (( fresh == 0 )); then
+    if [[ "$NETWORK_POLICY" == "force" && $fresh -eq 0 ]]; then
       if git -C "$dir" pull --ff-only --quiet 2>/dev/null; then
         log "pulled ${name}"
       else
         log "pull failed for ${name} (kept existing checkout)"
       fi
     fi
+    # auto/off: existing checkout is trusted, no network touch.
   else
+    if [[ "$NETWORK_POLICY" == "off" ]]; then
+      log "missing ${name} (network=off — run install.sh to repair)"
+      return 1
+    fi
     if git clone --depth=1 --quiet "$url" "$dir" 2>/dev/null; then
       log "cloned ${name}"
     else
@@ -116,12 +128,12 @@ link_skills_from() {
 link_skills_from "${SOURCES_DIR}/claude-skills"    1
 link_skills_from "${SOURCES_DIR}/anthropic-skills" 0
 
-date +%s > "$marker" 2>/dev/null || true
+[[ "$NETWORK_POLICY" == "force" ]] && date +%s > "$marker" 2>/dev/null || true
 
 ctx_lines=()
-ctx_lines+=("claude-skills / claude-hooks installer (SessionStart):")
+ctx_lines+=("claude-skills / claude-hooks installer (SessionStart, network=${NETWORK_POLICY}):")
 if (( fresh == 1 )); then
-  ctx_lines+=("- fresh within TTL (${TTL_SECONDS}s) — skipped network sync")
+  ctx_lines+=("- fresh within TTL (${TTL_SECONDS}s) — skipped pull")
 fi
 for line in "${log_lines[@]}"; do
   ctx_lines+=("- ${line}")
@@ -130,7 +142,7 @@ ctx_lines+=("- skills linked: ${linked} into ${SKILLS_DIR}")
 if (( skipped_conflict > 0 )); then
   ctx_lines+=("- skipped ${skipped_conflict} non-symlink target(s) under ${SKILLS_DIR} (already managed manually)")
 fi
-ctx_lines+=("- hooks checkout: ${SOURCES_DIR}/claude-hooks (register in ~/.claude/settings.json manually)")
+ctx_lines+=("- hooks checkout: ${SOURCES_DIR}/claude-hooks")
 
 context=$(printf '%s\n' "${ctx_lines[@]}")
 
