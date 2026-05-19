@@ -11,9 +11,32 @@ name: branch-protection
 #   - ci / shellcheck
 #   - ci / test (tests/test-worktree-naming-guard.sh)
 #
-# Uses the workflow's GITHUB_TOKEN with `administration: write` — no PAT
-# needed. The repo admin still has to flip "Allow auto-merge" in
-# Settings → General once (no API endpoint covers that toggle).
+# # Why a PAT secret instead of `GITHUB_TOKEN` + `permissions: administration`
+#
+# `administration` is NOT a supported scope of the `GITHUB_TOKEN`
+# permissions block. The official scope list at
+# https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token
+# is `actions / attestations / checks / contents / deployments /
+# discussions / id-token / issues / models / packages / pages /
+# pull-requests / repository-projects / security-events / statuses`.
+# There IS a fine-grained PAT repository permission called
+# "Administration" (which the Branches Protection API requires), but it
+# cannot be minted into `GITHUB_TOKEN`. Declaring `administration: write`
+# at the workflow `permissions:` block parses fine but fails authorization
+# at registration time, which GitHub records as a 0-job failure run on
+# every push to any branch — same root cause as ippoan/ci-workflows#23
+# (see [PR ippoan/ci-workflows#25](https://github.com/ippoan/ci-workflows/pull/25)
+# and the `gh-actions-phantom-permission` skill for the full write-up).
+#
+# This file therefore requires the repo to provide a `TAG_RELEASE_PAT`
+# secret — a fine-grained PAT (or GitHub App installation token) with
+# "Administration: write" + "Contents: read" repository permissions on
+# this repo. The `permissions:` block only declares scopes that
+# `GITHUB_TOKEN` actually supports.
+#
+# Until the secret is set, this workflow will fail at runtime with a 403
+# from the Branches API. Repo admin still has to flip "Allow auto-merge"
+# in Settings → General once (no API endpoint covers that toggle).
 
 on:
   workflow_dispatch:
@@ -22,9 +45,6 @@ on:
 
 permissions:
   contents: read
-  # `administration: write` is required to update branch protection rules.
-  # Granted at the workflow level (not job level) for clarity.
-  administration: write
 
 jobs:
   apply:
@@ -32,7 +52,7 @@ jobs:
     steps:
       - name: Apply branch protection on master
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TAG_RELEASE_PAT }}
         run: |
           gh api -X PUT \
             "repos/${{ github.repository }}/branches/master/protection" \
