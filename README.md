@@ -61,6 +61,7 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 | Hook | 役割 |
 |---|---|
 | `tag-release-userprompt-guard.sh` | `/tag-release` skill の Claude autonomous 呼び出しを block (Bash と同じ script で兼用) |
+| `pretooluse-open-multirepo-guard.sh` | `/open-multirepo` で agent が args に `repos=` を勝手に合成する narrow-scope ミスを block (ippoan/mcp-relay-rs#9 Phase 4 session の regression 対策、bypass: `OPEN_MULTIREPO_REPOS_OK=1`) |
 
 ### PostToolUse — Bash matcher
 

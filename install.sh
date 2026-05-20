@@ -121,6 +121,41 @@ register_session_hook() {
 }
 register_session_hook
 
+# Register PreToolUse hooks. Currently only `pretooluse-open-multirepo-guard.sh`
+# which blocks agent-synthesized `repos=` args on `Skill open-multirepo`
+# (regression caught at ippoan/mcp-relay-rs#9 Phase 4 session, 2026-05-20).
+register_pretooluse_hooks() {
+  [[ "${CLAUDE_HOOKS_SKIP_SETTINGS:-0}" == "1" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  [[ -f "$SETTINGS_FILE" ]] || echo '{}' > "$SETTINGS_FILE"
+
+  # 1 entry per (matcher, command) tuple. drop+re-add for idempotent re-runs.
+  local cmd='$HOME/.claude/sources/claude-hooks/pretooluse-open-multirepo-guard.sh'
+  local matcher='Skill'
+  local tmp="${SETTINGS_FILE}.tmp.$$"
+  jq --arg cmd "$cmd" --arg matcher "$matcher" '
+    .hooks //= {} |
+    .hooks.PreToolUse //= [] |
+    # drop any prior entry with the same (matcher, command) so re-runs replace
+    .hooks.PreToolUse |= map(
+      select(
+        (.matcher != $matcher) or
+        ((.hooks // []) | map(.command) | index($cmd) | not)
+      )
+    ) |
+    .hooks.PreToolUse += [{
+      matcher: $matcher,
+      hooks: [{
+        type: "command",
+        command: $cmd,
+        timeout: 5
+      }]
+    }]
+  ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
+  echo "  ✓ registered PreToolUse hook in ${SETTINGS_FILE} (Skill matcher → open-multirepo guard)"
+}
+register_pretooluse_hooks
+
 echo ""
 echo "Done. SessionStart hook will run offline on every session and re-link"
 echo "skills from ${SOURCES_DIR}/. To repair after a container rebuild,"
