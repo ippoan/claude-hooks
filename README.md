@@ -38,6 +38,7 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 |---|---|
 | `bash-edit-guard.sh` | `sed -i` 等で source を直接書き換える操作を block (Edit/Write 経由に誘導) |
 | `branch-switch-guard.sh` | `git checkout -b <new> main` を block (origin/main + worktree に誘導) |
+| `clone-guard.sh` | `/home/user/<name>` に pre-clone 済の repo を `git clone https://github.com/...` で別 path に re-clone する操作を block (proxy auth 付き pre-clone に誘導 — 別 clone は push 不可になり MCP 経由の slow push に fallback する) |
 | `deploy-guard.sh` | `wrangler deploy` / `deploy.sh` 直接実行を block (CI / tag-release に誘導) |
 | `git-safe-push.sh` | `git commit --amend` / `git push --force` を block |
 | `no-direct-frontend-dev.sh` | worktree 内 `npm run dev` / `nuxt dev` / `wrangler dev` を block (`/wt-quick` 経由に誘導) |
