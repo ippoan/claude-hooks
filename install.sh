@@ -179,6 +179,56 @@ register_pretooluse_hooks() {
 }
 register_pretooluse_hooks
 
+# permissions.deny の集中管理。
+#
+# claude.ai built-in の GitHub MCP connector (= `@modelcontextprotocol/server-
+# github` 由来の `mcp__github__*` tools) のうち、CCoW 環境では事実上ほぼ
+# 害悪 (= /home/user/<repo> に pre-clone が常駐していて git push の方が
+# 30× token 効率が良い) な write tool を deny する。
+#
+# 対象:
+#   - mcp__github__create_or_update_file
+#       single file の commit。ローカル git で代替可能。
+#   - mcp__github__push_files
+#       multi file commit。ローカル git で代替可能。
+#
+# どちらも tool call の `content` parameter に **ファイル全文** を JSON 文字列
+# として埋め込む仕様で、33 KB のファイルを 1 回 push すると ~10K token を
+# 消費する。同じ tool で同じファイルを修正再 push すると線形に積み上がる
+# (実例: ippoan/secrets-inventory-gcp#23 で main.go + main_test.go を MCP push
+# したら ~100KB / ~25K token を 1 PR で焼いた)。
+#
+# 非対称: `mcp__github__create_pull_request` 等の **state mutation tool** や、
+# `mcp__github__get_file_contents` 等の **read tool** はそのまま許可する。
+# あくまで file 全文を載せる write 系だけが対象。
+#
+# 緊急時 override は 2 通り:
+#   - 該当 deny entry を ~/.claude/settings.json から手で消す
+#   - CLAUDE_HOOKS_SKIP_SETTINGS=1 で installer を skip して別ルートで設定
+register_permissions_deny() {
+  [[ "${CLAUDE_HOOKS_SKIP_SETTINGS:-0}" == "1" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  [[ -f "$SETTINGS_FILE" ]] || echo '{}' > "$SETTINGS_FILE"
+
+  local denies
+  denies=$(jq -n '[
+    "mcp__github__create_or_update_file",
+    "mcp__github__push_files"
+  ]')
+
+  local tmp="${SETTINGS_FILE}.tmp.$$"
+  jq --argjson denies "$denies" '
+    .permissions //= {} |
+    .permissions.deny //= [] |
+    # union: 既存 deny は温存し、未登録のものだけ append (idempotent)
+    .permissions.deny = (
+      (.permissions.deny + $denies) | unique
+    )
+  ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
+  echo "  ✓ registered permissions.deny in ${SETTINGS_FILE} (mcp__github write tools)"
+}
+register_permissions_deny
+
 echo ""
 echo "Done. SessionStart hook will run offline on every session and re-link"
 echo "skills from ${SOURCES_DIR}/. To repair after a container rebuild,"
