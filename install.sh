@@ -129,6 +129,12 @@ register_session_hook
 #    already pre-cloned at /home/user/<name> (those pre-clones have a
 #    proxy-auth remote; a plain HTTPS re-clone leaves the new copy unable to
 #    push, forcing slow MCP-based pushes).
+#  - proxy-push-guard.sh (Bash matcher) — blocks `git push` from a cwd
+#    whose origin URL is not a CCoW local proxy. Detects the proxy 502
+#    "repository not authorized" / git "could not read Username" pre-fail
+#    and steers the agent to either the pre-clone or to AskUserQuestion
+#    (= scope 追加 / open-multirepo handover) before wasting cycles
+#    (Refs ippoan/ref-files-worker#6 session, 2026-05-25).
 register_pretooluse_hooks() {
   [[ "${CLAUDE_HOOKS_SKIP_SETTINGS:-0}" == "1" ]] && return 0
   command -v jq >/dev/null 2>&1 || return 0
@@ -147,6 +153,11 @@ register_pretooluse_hooks() {
     {
       matcher: "Bash",
       command: "$HOME/.claude/sources/claude-hooks/clone-guard.sh",
+      timeout: 5
+    },
+    {
+      matcher: "Bash",
+      command: "$HOME/.claude/sources/claude-hooks/proxy-push-guard.sh",
       timeout: 5
     }
   ]')
@@ -175,7 +186,7 @@ register_pretooluse_hooks() {
       }]
     }))
   ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
-  echo "  ✓ registered PreToolUse hooks in ${SETTINGS_FILE} (open-multirepo guard, clone guard)"
+  echo "  ✓ registered PreToolUse hooks in ${SETTINGS_FILE} (open-multirepo guard, clone guard, proxy-push guard)"
 }
 register_pretooluse_hooks
 
