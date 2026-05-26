@@ -3,9 +3,9 @@
 # block して /wt-direct-push に誘導する。
 #
 # 背景:
-#   ippoan/github-mcp-server-rs#28 で /pr-push を使った結果、PR merge 待ちの間に
-#   /tag-release patch が走って古い main HEAD から release が build され、PR の changes
-#   (relay 実装) が release から漏れる事故が発生。
+#   ippoan/github-mcp-server-rs#28 (archived; monorepo: ippoan/mcp-relay-rs) で /pr-push を
+#   使った結果、PR merge 待ちの間に /tag-release patch が走って古い main HEAD から release が
+#   build され、PR の changes (relay 実装) が release から漏れる事故が発生。
 #
 #   direct-push allowlist 対象 repo (branch protection 無し / auto-merge 未設定) は
 #   /wt-direct-push で fast-forward 直 push する方が事故も少なく速い。
@@ -70,7 +70,7 @@ if grep -vE '^\s*(#|$)' "$ALLOWLIST" | grep -qxF "$OWNER_NAME"; then
     "hookSpecificOutput": {
       "hookEventName": "PreToolUse",
       "permissionDecision": "deny",
-      "permissionDecisionReason": ($repo + " は wt-direct-push allowlist に登録済 (branch protection 無し / auto-merge 未設定)。\n/pr-push ではなく /wt-direct-push でコミット済み変更を main に fast-forward 直 push してください。\n\n背景: PR を作っても auto-merge 無しで塩漬けになり、その間に tag-release が古い main から build → release から changes が漏れる事故が起きます (ippoan/github-mcp-server-rs#28 参照)。\n\nどうしても PR にしたい正当な理由がある場合は、明示的にユーザに確認してから本 hook を bypass する方法を相談してください。")
+      "permissionDecisionReason": ($repo + " は wt-direct-push allowlist に登録済 (branch protection 無し / auto-merge 未設定)。\n/pr-push ではなく /wt-direct-push でコミット済み変更を main に fast-forward 直 push してください。\n\n背景: PR を作っても auto-merge 無しで塩漬けになり、その間に tag-release が古い main から build → release から changes が漏れる事故が起きます (ippoan/github-mcp-server-rs#28 参照、archived; monorepo: ippoan/mcp-relay-rs)。\n\nどうしても PR にしたい正当な理由がある場合は、明示的にユーザに確認してから本 hook を bypass する方法を相談してください。")
     }
   }'
   exit 0
