@@ -1,7 +1,7 @@
 #!/bin/bash
 # PreToolUse hook: worktree / branch 作成コマンドの命名規則を機械的に検証する。
 #
-# 規約 (yhonda-ohishi/claude-skills#3):
+# 規約 (yhonda-ohishi/claude-skills#3, 現 ippoan/claude-skills):
 #   形式: <issue-number>-<type>-<short-description>
 #   type: feat | fix | refactor | infra (env で上書き可)
 #   例: 123-fix-onedrive-token / 145-feat-line-works-webhook
