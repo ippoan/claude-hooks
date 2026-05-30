@@ -80,6 +80,7 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 | `session-start-memory-baseline.sh` | 前 session 以降に memory file が増えていれば警告 |
 | `session-start-sandbox-hint.sh` | Backend + Frontend 同時改修 (Incus + wt-quick) workflow hint を inject |
 | `session-start-install-skills.sh` | `ippoan/claude-hooks` + `ippoan/claude-skills` を `~/.claude/sources/` に shallow clone + skill を `~/.claude/skills/<name>` に symlink (TTL 1h、idempotent) |
+| `session-start-stale-skills-check.sh` | `~/.claude/sources/*` と `/home/user/*` の git origin を走査し、`yhonda-ohishi/claude-skills` を指している stale checkout があれば `remote set-url` reseat コマンドを inject (clean なら 1 行報告のみ、移行 phase-out 後に削除可) |
 
 ### Utility (non-hook)
 
