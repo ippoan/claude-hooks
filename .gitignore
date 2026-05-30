@@ -1,0 +1,4 @@
+# runtime state, not source
+claude-signal
+claude-notifier-active.d/
+permission-alerts.log
