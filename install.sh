@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot installer for ippoan/claude-hooks + yhonda-ohishi/claude-skills.
+# One-shot installer for ippoan/claude-hooks + ippoan/claude-skills.
 #
 # Usage (CCoW Setup script — paste the next line into the env's Setup script
 # field; runs ONCE per container, has full proxy network reach):
@@ -41,7 +41,7 @@ SKILLS_DIR="${CLAUDE_DIR}/skills"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 
 HOOKS_REPO_URL="${CLAUDE_HOOKS_HOOKS_URL:-https://github.com/ippoan/claude-hooks.git}"
-SKILLS_REPO_URL="${CLAUDE_HOOKS_SKILLS_URL:-https://github.com/yhonda-ohishi/claude-skills.git}"
+SKILLS_REPO_URL="${CLAUDE_HOOKS_SKILLS_URL:-https://github.com/ippoan/claude-skills.git}"
 
 mkdir -p "$SOURCES_DIR" "$SKILLS_DIR"
 

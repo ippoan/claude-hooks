@@ -8,7 +8,7 @@
 # (3 repo) の launch URL を作ってしまった。skill 仕様では「引数無し →
 # 全 MCP scope (~11 repo)」が正で、agent 側の synthesize ミス。
 #
-# 仕様再確認: yhonda-ohishi/claude-skills/.claude/skills/open-multirepo/SKILL.md
+# 仕様再確認: ippoan/claude-skills/.claude/skills/open-multirepo/SKILL.md
 # "Distinguishing **explicit list** vs **descriptive mention**" — user が
 # literal に `owner/repo, owner/repo` 形式の list を書いた時だけ narrow 可。
 # agent が user の prose を解釈して repos= を作るのは禁止。
@@ -65,7 +65,7 @@ if printf '%s' "$ARGS" | grep -qE '(^|[[:space:],])repos='; then
      `OPEN_MULTIREPO_REPOS_OK=1` を立てて再実行 (bypass)。
 
 参照:
-  - yhonda-ohishi/claude-skills/.claude/skills/open-multirepo/SKILL.md
+  - ippoan/claude-skills/.claude/skills/open-multirepo/SKILL.md
     "Distinguishing **explicit list** vs **descriptive mention**"
   - ippoan/mcp-relay-rs#9 Phase 4 session (2026-05-20 regression)
 EOF

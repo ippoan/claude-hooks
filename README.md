@@ -79,7 +79,7 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 |---|---|
 | `session-start-memory-baseline.sh` | 前 session 以降に memory file が増えていれば警告 |
 | `session-start-sandbox-hint.sh` | Backend + Frontend 同時改修 (Incus + wt-quick) workflow hint を inject |
-| `session-start-install-skills.sh` | `ippoan/claude-hooks` + `yhonda-ohishi/claude-skills` を `~/.claude/sources/` に shallow clone + skill を `~/.claude/skills/<name>` に symlink (TTL 1h、idempotent) |
+| `session-start-install-skills.sh` | `ippoan/claude-hooks` + `ippoan/claude-skills` を `~/.claude/sources/` に shallow clone + skill を `~/.claude/skills/<name>` に symlink (TTL 1h、idempotent) |
 
 ### Utility (non-hook)
 
@@ -207,7 +207,7 @@ jobs:
 
 ## 関連
 
-- 規約策定: [yhonda-ohishi/claude-skills#3](https://github.com/yhonda-ohishi/claude-skills/issues/3)
+- 規約策定: [yhonda-ohishi/claude-skills#3](https://github.com/yhonda-ohishi/claude-skills/issues/3) (skill repo は現在 [ippoan/claude-skills](https://github.com/ippoan/claude-skills) に移行)
 - 本 hook の issue: [ippoan/claude-hooks](https://github.com/ippoan/claude-hooks)
 
 ---
@@ -216,7 +216,7 @@ jobs:
 
 ### 仕様
 
-SessionStart 時に `yhonda-ohishi/claude-skills` と `ippoan/claude-hooks` を `~/.claude/sources/` に shallow clone (or `git pull --ff-only`) し、claude-skills 内の各 `SKILL.md` を `~/.claude/skills/<skill-name>` に symlink する。
+SessionStart 時に `ippoan/claude-skills` と `ippoan/claude-hooks` を `~/.claude/sources/` に shallow clone (or `git pull --ff-only`) し、claude-skills 内の各 `SKILL.md` を `~/.claude/skills/<skill-name>` に symlink する。
 
 - **配置先**:
   - sources: `~/.claude/sources/{claude-skills,claude-hooks}` (shallow git checkout)
@@ -251,7 +251,7 @@ SessionStart 時に `yhonda-ohishi/claude-skills` と `ippoan/claude-hooks` を 
 | 変数 | 既定値 | 用途 |
 |---|---|---|
 | `CLAUDE_HOOKS_INSTALL_TTL` | `3600` | network sync を skip する TTL (秒) |
-| `CLAUDE_HOOKS_SKILLS_URL` | `https://github.com/yhonda-ohishi/claude-skills.git` | claude-skills の clone URL を上書き (private fork 等) |
+| `CLAUDE_HOOKS_SKILLS_URL` | `https://github.com/ippoan/claude-skills.git` | claude-skills の clone URL を上書き (private fork 等) |
 | `CLAUDE_HOOKS_HOOKS_URL`  | `https://github.com/ippoan/claude-hooks.git`  | claude-hooks の clone URL を上書き |
 
 ### 手動テスト

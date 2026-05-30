@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SessionStart hook: ensure yhonda-ohishi/{claude-skills,claude-hooks} and
+# SessionStart hook: ensure ippoan/{claude-skills,claude-hooks} and
 # anthropics/skills are checked out under ~/.claude/sources and symlink
 # discovered skill dirs into ~/.claude/skills/<name> so they are picked up
 # as user-level skills.
@@ -12,8 +12,8 @@
 #   repo here is the only reliable way to make those skills available
 #   inside each session.
 #
-# Conflict policy: yhonda-ohishi/claude-skills wins over anthropics/skills
-#   when both define a skill with the same name (yhonda is processed first,
+# Conflict policy: ippoan/claude-skills wins over anthropics/skills
+#   when both define a skill with the same name (ippoan is processed first,
 #   anthropic is only linked into slots that are still empty).
 #
 # Network policy — `CLAUDE_HOOKS_INSTALL_NETWORK`:
@@ -37,7 +37,7 @@ MARKER_DIR="${CLAUDE_DIR}/.install-skills-marker"
 TTL_SECONDS="${CLAUDE_HOOKS_INSTALL_TTL:-3600}"
 NETWORK_POLICY="${CLAUDE_HOOKS_INSTALL_NETWORK:-auto}"
 
-SKILLS_REPO_URL="${CLAUDE_HOOKS_SKILLS_URL:-https://github.com/yhonda-ohishi/claude-skills.git}"
+SKILLS_REPO_URL="${CLAUDE_HOOKS_SKILLS_URL:-https://github.com/ippoan/claude-skills.git}"
 HOOKS_REPO_URL="${CLAUDE_HOOKS_HOOKS_URL:-https://github.com/ippoan/claude-hooks.git}"
 ANTHROPIC_SKILLS_REPO_URL="${CLAUDE_HOOKS_ANTHROPIC_SKILLS_URL:-https://github.com/anthropics/skills.git}"
 
@@ -88,8 +88,8 @@ sync_repo "claude-hooks"  "$HOOKS_REPO_URL"            || true
 sync_repo "anthropic-skills" "$ANTHROPIC_SKILLS_REPO_URL" || true
 
 # Symlink every SKILL.md dir into ~/.claude/skills/<name>.
-#   yhonda-ohishi/claude-skills — scanned first (wins on name conflicts)
-#   anthropics/skills           — only fills empty slots; never overwrites
+#   ippoan/claude-skills — scanned first (wins on name conflicts)
+#   anthropics/skills    — only fills empty slots; never overwrites
 #
 # For each source, we re-link existing symlinks to track upstream moves and
 # create new symlinks for previously unseen skills. Non-symlink targets are
@@ -98,7 +98,7 @@ linked=0
 skipped_conflict=0
 
 # args: <source-dir> <allow-relink: 1|0>
-#   allow-relink=1 → re-point existing symlinks (used for yhonda, which owns
+#   allow-relink=1 → re-point existing symlinks (used for ippoan, which owns
 #   the slot). allow-relink=0 → only create when slot is empty (used for
 #   anthropic, so user's overrides are never clobbered).
 link_skills_from() {
