@@ -81,6 +81,7 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 | `session-start-sandbox-hint.sh` | Backend + Frontend 同時改修 (Incus + wt-quick) workflow hint を inject |
 | `session-start-install-skills.sh` | `ippoan/claude-hooks` + `ippoan/claude-skills` を `~/.claude/sources/` に shallow clone + skill を `~/.claude/skills/<name>` に symlink (TTL 1h、idempotent) |
 | `session-start-stale-skills-check.sh` | `~/.claude/sources/*` と `/home/user/*` の git origin を走査し、`yhonda-ohishi/claude-skills` を指している stale checkout があれば `remote set-url` reseat コマンドを inject (clean なら 1 行報告のみ、移行 phase-out 後に削除可) |
+| `session-start-write-mcp-user-scope.sh` | `~/.config/ref-files-mcp-server-rs/token-{env}.json` から MCP-JWT を読み、`~/.claude.json` `.mcpServers.ref-files-native` を worker-native `/mcp` (HTTP transport + `Authorization: Bearer …`) で idempotent merge する。Rust relay binary を経由せず worker MCP tool (`folder_download_url` 等) を user-scope で全 repo 共通に attach する。CCoW 限定 (`CLAUDE_CODE_REMOTE=true`)、`SKIP_WRITE_MCP_USER_SCOPE=1` で opt-out。token が無い / 期限切れの場合は skip (`session-start-install-mcp-relay.sh` の診断が recovery 手順を出す)。Refs ippoan/ref-files-worker#29。|
 
 ### Utility (non-hook)
 
