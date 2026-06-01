@@ -88,20 +88,14 @@ echo "  ✓ linked ${linked} skill(s) into ${SKILLS_DIR}"
 # Register the SessionStart hook in ~/.claude/settings.json (offline mode).
 # Skipped when CLAUDE_HOOKS_SKIP_SETTINGS=1, or when jq is unavailable.
 register_session_hook() {
-  [[ "${CLAUDE_HOOKS_SKIP_SETTINGS:-0}" == "1" ]] && {
-    echo "  ⊘ skipped settings.json (CLAUDE_HOOKS_SKIP_SETTINGS=1)"
-    return 0
-  }
-  if ! command -v jq >/dev/null 2>&1; then
-    echo "  ⚠ jq not installed — leaving ${SETTINGS_FILE} untouched" >&2
-    return 0
-  fi
+  local cmd="$1"
+  local timeout="${2:-5000}"
+  local env_json="${3:-{\}}"
   [[ -f "$SETTINGS_FILE" ]] || echo '{}' > "$SETTINGS_FILE"
   # Idempotent merge: ensure SessionStart contains exactly one entry whose
   # `command` points at our hook. Other SessionStart hooks are preserved.
-  local cmd='$HOME/.claude/sources/claude-hooks/session-start-install-skills.sh'
   local tmp="${SETTINGS_FILE}.tmp.$$"
-  jq --arg cmd "$cmd" '
+  jq --arg cmd "$cmd" --argjson timeout "$timeout" --argjson env "$env_json" '
     .hooks //= {} |
     .hooks.SessionStart //= [] |
     # drop any prior entry that targets our hook (so re-runs replace, not stack)
@@ -112,14 +106,41 @@ register_session_hook() {
       hooks: [{
         type: "command",
         command: $cmd,
-        timeout: 5000,
-        env: { CLAUDE_HOOKS_INSTALL_NETWORK: "off" }
+        timeout: $timeout,
+        env: $env
       }]
     }]
   ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
-  echo "  ✓ registered SessionStart hook in ${SETTINGS_FILE} (network=off)"
+  echo "  ✓ registered SessionStart hook ${cmd##*/} in ${SETTINGS_FILE}"
 }
-register_session_hook
+
+register_all_session_hooks() {
+  [[ "${CLAUDE_HOOKS_SKIP_SETTINGS:-0}" == "1" ]] && {
+    echo "  ⊘ skipped settings.json (CLAUDE_HOOKS_SKIP_SETTINGS=1)"
+    return 0
+  }
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  ⚠ jq not installed — leaving ${SETTINGS_FILE} untouched" >&2
+    return 0
+  fi
+
+  register_session_hook \
+    '$HOME/.claude/sources/claude-hooks/session-start-install-skills.sh' \
+    5000 \
+    '{"CLAUDE_HOOKS_INSTALL_NETWORK":"off"}'
+
+  # write-mcp-user-scope: register `ref-files-native` (worker `/mcp`) into
+  # `~/.claude.json` `.mcpServers` so `folder_download_url` and friends
+  # are reachable without going through the Rust relay binary. Reads the
+  # MCP-JWT from the token cache that `session-start-install-mcp-relay.sh`
+  # already maintains, so this hook is a no-op without that one running
+  # first (we declare it second; SessionStart entries run in array order).
+  register_session_hook \
+    '$HOME/.claude/sources/claude-hooks/session-start-write-mcp-user-scope.sh' \
+    5000 \
+    '{}'
+}
+register_all_session_hooks
 
 # Register PreToolUse hooks.
 #  - pretooluse-open-multirepo-guard.sh (Skill matcher) — blocks
