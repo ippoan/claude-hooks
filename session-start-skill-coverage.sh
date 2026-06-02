@@ -57,7 +57,10 @@ for parent in $SCAN_DIRS; do
     repo="$(basename "$d")"
     case "$IGNORE" in *" $repo "*) continue ;; esac
     if [ -n "${covered[$repo]:-}" ]; then
-      cur="$(git -C "$d" rev-parse 'HEAD^{tree}' 2>/dev/null || echo "")"
+      # --verify -q: 空 repo (HEAD 無し) は何も出さず非ゼロ → cur="" で鮮度比較スキップ。
+      # 素朴な `rev-parse 'HEAD^{tree}'` は失敗時に literal "HEAD^{tree}" を stdout に
+      # 出すため、empty-tree-sha の placeholder map を stale 誤検出してしまう (それを回避)。
+      cur="$(git -C "$d" rev-parse --verify -q 'HEAD^{tree}' 2>/dev/null)"
       [ -n "$cur" ] && [ "${covered[$repo]}" != "$cur" ] && stale+=("$repo")
     else
       uncovered+=("$repo")
