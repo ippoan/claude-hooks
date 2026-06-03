@@ -160,6 +160,11 @@ register_all_session_hooks
 #    head が origin/<base> より遅れた (out-of-date) まま PR を作るのを deny。
 #    post-push-rebase-check.sh の非ブロッキング警告を無視して PR を立てる事故
 #    (GitHub "This branch is out-of-date with the base branch") を防ぐ。
+#  - pr-refs-link-guard.sh (mcp__github__create_pull_request matcher) — blocks
+#    PR creation when the body carries no issue ref (`Refs #N` 等). Without it
+#    the issue can't be traced back from the PR (GitHub only links via closing
+#    keywords) and falls out of ci-dashboard's release-close reverse-lookup /
+#    /issues tracking (Refs ippoan/HealthConnectReader#14/#16/#18 close 漏れ).
 register_pretooluse_hooks() {
   [[ "${CLAUDE_HOOKS_SKIP_SETTINGS:-0}" == "1" ]] && return 0
   command -v jq >/dev/null 2>&1 || return 0
@@ -189,6 +194,11 @@ register_pretooluse_hooks() {
       matcher: "mcp__github__create_pull_request",
       command: "$HOME/.claude/sources/claude-hooks/pre-pr-rebase-guard.sh",
       timeout: 10
+    },
+    {
+      matcher: "mcp__github__create_pull_request",
+      command: "$HOME/.claude/sources/claude-hooks/pr-refs-link-guard.sh",
+      timeout: 10
     }
   ]')
 
@@ -216,7 +226,7 @@ register_pretooluse_hooks() {
       }]
     }))
   ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
-  echo "  ✓ registered PreToolUse hooks in ${SETTINGS_FILE} (open-multirepo guard, clone guard, proxy-push guard, pr-rebase guard)"
+  echo "  ✓ registered PreToolUse hooks in ${SETTINGS_FILE} (open-multirepo guard, clone guard, proxy-push guard, pr-rebase guard, pr-refs-link guard)"
 }
 register_pretooluse_hooks
 
