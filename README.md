@@ -69,6 +69,7 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 | Hook | 役割 |
 |---|---|
 | `pre-pr-rebase-guard.sh` | head branch が `origin/<base>` より遅れた (out-of-date) まま PR を作るのを **deny**。`post-push-rebase-check.sh` の非ブロッキング警告を無視して PR を立て、GitHub で "This branch is out-of-date with the base branch" になる事故を防ぐ。pre-clone 不在 / fetch 不能 / head ref 不在は誤 block 回避で素通し |
+| `pr-refs-link-guard.sh` | PR 本文に issue 参照 (`Refs #N` / `Related to #N` / `Part of #N` / cross-repo `Refs owner/repo#N` / issue URL) が無ければ `create_pull_request` を **deny**。issue↔PR の紐付けを強制し、close 漏れ・追跡漏れを防ぐ (Refs ippoan/HealthConnectReader#14/#16/#18)。issue を持たない PR は本文に `[no-issue]` で opt-out |
 
 ### PostToolUse — Bash matcher
 
