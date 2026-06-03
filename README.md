@@ -64,6 +64,12 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 | `tag-release-userprompt-guard.sh` | `/tag-release` skill の Claude autonomous 呼び出しを block (Bash と同じ script で兼用) |
 | `pretooluse-open-multirepo-guard.sh` | `/open-multirepo` で agent が args に `repos=` を勝手に合成する narrow-scope ミスを block (ippoan/mcp-relay-rs#9 Phase 4 session の regression 対策、bypass: `OPEN_MULTIREPO_REPOS_OK=1`) |
 
+### PreToolUse — `mcp__github__create_pull_request` matcher
+
+| Hook | 役割 |
+|---|---|
+| `pre-pr-rebase-guard.sh` | head branch が `origin/<base>` より遅れた (out-of-date) まま PR を作るのを **deny**。`post-push-rebase-check.sh` の非ブロッキング警告を無視して PR を立て、GitHub で "This branch is out-of-date with the base branch" になる事故を防ぐ。pre-clone 不在 / fetch 不能 / head ref 不在は誤 block 回避で素通し |
+
 ### PostToolUse — Bash matcher
 
 | Hook | 役割 |
@@ -72,6 +78,7 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 | `post-pr-check.sh` | `gh pr create` 後に conflict / CI start を auto-check |
 | `post-pr-remove-worktree.sh` | PR 作成成功後に worktree を auto-remove |
 | `post-push-ci-check.sh` | `git push` 後に CI 開始を確認 |
+| `post-push-rebase-check.sh` | `git push` 後に branch が `origin/<base>` より遅れていないか確認し、遅れていたら警告 (**非ブロッキング**)。PR 作成自体を止めるのは `pre-pr-rebase-guard.sh` (上記 PreToolUse) |
 
 ### SessionStart
 
