@@ -56,6 +56,7 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 | Hook | 役割 |
 |---|---|
 | `worktree-edit-guard.sh` | protected repo の main worktree への Edit / Write を block (worktree 経由に誘導) |
+| `secret-naming-guard.sh` | secret 命名規約違反を **非ブロッキング**で警告。CF Secrets Store `secret_name` (wrangler) が kebab-case でない / GCP Secret Manager 名 (`--set-secrets`・`--update-secrets`・`gcloud secrets create`) が SCREAMING_SNAKE_CASE でない場合に additionalContext で指摘。SoT は claude-skills `secret-naming` skill (Refs ippoan/secrets-inventory#23) |
 
 ### PreToolUse — Skill matcher
 

@@ -165,6 +165,12 @@ register_all_session_hooks
 #    the issue can't be traced back from the PR (GitHub only links via closing
 #    keywords) and falls out of ci-dashboard's release-close reverse-lookup /
 #    /issues tracking (Refs ippoan/HealthConnectReader#14/#16/#18 close 漏れ).
+#  - secret-naming-guard.sh (Write|Edit matcher) — **非ブロッキング**で secret
+#    命名規約違反を警告。CF Secrets Store `secret_name` は kebab-case、GCP Secret
+#    Manager 名は SCREAMING_SNAKE_CASE (claude-skills `secret-naming` skill が SoT)。
+#    両プラットフォームとも rename 不可 + alias は rotation 2 重 bump で drift する
+#    ため、名前は揃えず規約で固定し違反を Edit/Write 時点で気付かせ随時修正する
+#    (Refs ippoan/secrets-inventory#23).
 register_pretooluse_hooks() {
   [[ "${CLAUDE_HOOKS_SKIP_SETTINGS:-0}" == "1" ]] && return 0
   command -v jq >/dev/null 2>&1 || return 0
@@ -199,6 +205,11 @@ register_pretooluse_hooks() {
       matcher: "mcp__github__create_pull_request",
       command: "$HOME/.claude/sources/claude-hooks/pr-refs-link-guard.sh",
       timeout: 10
+    },
+    {
+      matcher: "Write|Edit",
+      command: "$HOME/.claude/sources/claude-hooks/secret-naming-guard.sh",
+      timeout: 10
     }
   ]')
 
@@ -226,7 +237,7 @@ register_pretooluse_hooks() {
       }]
     }))
   ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
-  echo "  ✓ registered PreToolUse hooks in ${SETTINGS_FILE} (open-multirepo guard, clone guard, proxy-push guard, pr-rebase guard, pr-refs-link guard)"
+  echo "  ✓ registered PreToolUse hooks in ${SETTINGS_FILE} (open-multirepo guard, clone guard, proxy-push guard, pr-rebase guard, pr-refs-link guard, secret-naming guard)"
 }
 register_pretooluse_hooks
 
