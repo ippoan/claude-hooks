@@ -171,6 +171,12 @@ register_all_session_hooks
 #    両プラットフォームとも rename 不可 + alias は rotation 2 重 bump で drift する
 #    ため、名前は揃えず規約で固定し違反を Edit/Write 時点で気付かせ随時修正する
 #    (Refs ippoan/secrets-inventory#23).
+#  - pr-push-allowlist-guard.sh (Bash matcher) — blocks `pr-push.sh` 起動を
+#    repo が wt-direct-push allowlist (config/direct-push-ok.txt) に登録済の時
+#    deny し /wt-direct-push に誘導する。allowlist repo は branch protection /
+#    auto-merge 未設定で、/pr-push すると PR が塩漬けのまま tag-release が古い
+#    main から build → release から changes が漏れる (Refs ippoan/github-mcp-
+#    server-rs#28, archived; monorepo: ippoan/mcp-relay-rs)。
 register_pretooluse_hooks() {
   [[ "${CLAUDE_HOOKS_SKIP_SETTINGS:-0}" == "1" ]] && return 0
   command -v jq >/dev/null 2>&1 || return 0
@@ -210,6 +216,11 @@ register_pretooluse_hooks() {
       matcher: "Write|Edit",
       command: "$HOME/.claude/sources/claude-hooks/secret-naming-guard.sh",
       timeout: 10
+    },
+    {
+      matcher: "Bash",
+      command: "$HOME/.claude/sources/claude-hooks/pr-push-allowlist-guard.sh",
+      timeout: 5
     }
   ]')
 
@@ -237,7 +248,7 @@ register_pretooluse_hooks() {
       }]
     }))
   ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
-  echo "  ✓ registered PreToolUse hooks in ${SETTINGS_FILE} (open-multirepo guard, clone guard, proxy-push guard, pr-rebase guard, pr-refs-link guard, secret-naming guard)"
+  echo "  ✓ registered PreToolUse hooks in ${SETTINGS_FILE} (open-multirepo guard, clone guard, proxy-push guard, pr-rebase guard, pr-refs-link guard, secret-naming guard, pr-push-allowlist guard)"
 }
 register_pretooluse_hooks
 
