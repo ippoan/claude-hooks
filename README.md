@@ -44,6 +44,7 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 | `no-direct-frontend-dev.sh` | worktree 内 `npm run dev` / `nuxt dev` / `wrangler dev` を block (`/wt-quick` 経由に誘導) |
 | `no-local-merge.sh` | `gh pr merge` のローカル実行を block (CI auto-merge に任せる) |
 | `pr-create-guard.sh` | `gh pr create` 直叩きを block (`/pr-push` skill 経由に誘導) |
+| `pr-push-allowlist-guard.sh` | `pr-push.sh` 起動を repo が wt-direct-push allowlist (`wt-direct-push/config/direct-push-ok.txt`) に登録済の時 block (`/wt-direct-push` 直 push に誘導 — allowlist repo は branch protection / auto-merge 未設定で /pr-push すると PR 塩漬け → tag-release が古い main から release を build する事故。Refs ippoan/github-mcp-server-rs#28, archived; monorepo: ippoan/mcp-relay-rs) |
 | `pr-state-guard.sh` | merge / close 済 PR への push を block |
 | `tag-release-userprompt-guard.sh` | tag-release.sh / `git tag v*` / `gh workflow run tag-release.yml` / `/tag-release` skill を user 明示指示なしに block |
 | `worktree-auto-gc.sh` | `git worktree add` 前に merged worktree を auto-GC |
