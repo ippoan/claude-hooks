@@ -93,6 +93,12 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 | `session-start-stale-skills-check.sh` | `~/.claude/sources/*` と `/home/user/*` の git origin を走査し、`yhonda-ohishi/claude-skills` を指している stale checkout があれば `remote set-url` reseat コマンドを inject (clean なら 1 行報告のみ、移行 phase-out 後に削除可) |
 | `session-start-write-mcp-user-scope.sh` | `~/.config/ref-files-mcp-server-rs/token-{env}.json` から MCP-JWT を読み、`~/.claude.json` `.mcpServers.ref-files-native` を worker-native `/mcp` (HTTP transport + `Authorization: Bearer …`) で idempotent merge する。Rust relay binary を経由せず worker MCP tool (`folder_download_url` 等) を user-scope で全 repo 共通に attach する。CCoW 限定 (`CLAUDE_CODE_REMOTE=true`)、`SKIP_WRITE_MCP_USER_SCOPE=1` で opt-out。token が無い / 期限切れの場合は skip (`session-start-install-mcp-relay.sh` の診断が recovery 手順を出す)。Refs ippoan/ref-files-worker#29。|
 
+### Stop
+
+| Hook | 役割 |
+|---|---|
+| `stop-tool-syntax-check.sh` | ターン終了時に transcript の最終 assistant メッセージを検査し、テキストとして漏れた未実行のツール呼び出しマークアップ (`<invoke name=…>` / `<function_calls>` / `<parameter name=…>` 等) を検出したら `decision:block` で「正しいツール呼び出し形式で呼び直せ」と feedback する。正しいツール呼び出しは tool_use ブロックになり text には現れないため、text 中の当該マークアップ = harness 未パース = 未実行。`stop_hook_active` 時は再 block しない (無限ループ防止)、transcript 不在は素通し (fail-open) |
+
 ### Utility (non-hook)
 
 | File | 役割 |
