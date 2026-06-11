@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
-# SessionStart hook: repo ↔ skill の coverage と鮮度を点検する。
+# SessionStart hook: attached repo のうち「構造把握用 map skill が無い」repo を
+# 列挙する (coverage のみ)。
 #
-# 2 つを warning として additionalContext に inject する:
-#   (1) coverage — /home/user/<repo> のうち、どの skill の `generated-from` にも
-#       載っていない repo を「構造把握用 skill が無い」として列挙。
-#   (2) staleness — `generated-from` を持つ skill について、記録した tree-sha と
-#       現在の repo の tree-sha がズレていたら「skill が code 変化に追従していない
-#       (要再生成)」として列挙。
+# 縮小の経緯 (ippoan/claude-hooks#18):
+#   旧版は stale 判定 (skill の記録 tree-sha vs repo の現在 tree-sha) も持っていたが、
+#   (1) tree-sha 完全一致のため 1 コミットで常時 stale 化 (オオカミ少年)、
+#   (2) covered[repo] が glob 順の後勝ち上書きで複数 skill カバー時に stale をマスク、
+#   (3) SessionStart の warn 自体が CCoW で無視される、という理由で機能しなかった。
+#   stale 判定は skills-check CI (PR diff、ippoan/ci-workflows#118) へ移譲し、
+#   本 hook は「map の無い repo の通知」だけに縮小した。
 #
 # 設計: ippoan/claude-skills の cross-repo-symbol-index skill。
 #   横断 symbol index を D1/CI で持つ代わりに「symbol はその場でローカル ctags、
-#   手書き skill が code と乖離してないかだけ hook で見る」最小形。
+#   構造 map は手書き skill」最小形。鮮度 (code↔map の追従) は CI が見る。
 #
-# generated-from の形式 (skill SKILL.md の frontmatter、1 行・space 区切り):
-#   generated-from: claude-md:<tree-sha> mcp-relay-rs:<tree-sha> ...
-#   tree-sha = 生成時の `git -C /home/user/<repo> rev-parse HEAD^{tree}`
+# generated-from の形式 (skill SKILL.md の frontmatter):
+#   新: generated-from: <repo>:<commit-sha>      (+ 別行 `paths: [src/, ...]`)
+#   旧/横断: generated-from: claude-md:<tree-sha> claude-hooks:<tree-sha> ...
+#   どちらも space 区切りの `<repo>:<sha>` を列挙する形なので、本 hook は repo 名
+#   だけを取り出して coverage を計算する (sha / paths は CI が使う、ここでは無視)。
 #
-# 出力: stale / uncovered が 1 つでもあれば warning。両方空なら 1 行報告。
+# 出力: uncovered が 1 つでもあれば warning、無ければ 1 行報告。
 #
 # env override:
 #   CLAUDE_HOME             ~/.claude の path (default: $HOME/.claude)
@@ -33,22 +37,29 @@ emit() {
   python3 -c 'import json,sys; print(json.dumps({"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":sys.argv[1]}}))' "$1"
 }
 
-# 1. 全 skill の generated-from を集める: covered[repo]=記録 tree-sha
+# 1. 全 skill の generated-from から「カバーされている repo の集合」を作る。
+#    covered[repo] には カバーしている skill 名を **蓄積** する (後勝ち上書きしない
+#    = 複数 skill が同一 repo をカバーしても両方記録する。旧版のマスクバグ修正)。
 declare -A covered
 if [ -d "$SKILLS_DIR" ]; then
   for f in "$SKILLS_DIR"/*/SKILL.md; do
     [ -f "$f" ] || continue
+    skill="$(basename "$(dirname "$f")")"
     line="$(grep -m1 '^generated-from:' "$f" 2>/dev/null)" || continue
     for pair in ${line#generated-from:}; do
       repo="${pair%%:*}"
       sha="${pair#*:}"
-      [ -n "$repo" ] && [ "$repo" != "$sha" ] && covered["$repo"]="$sha"
+      # `<repo>:<sha>` の形でなければ (colon 無し → repo==sha) skip
+      { [ -n "$repo" ] && [ "$repo" != "$sha" ]; } || continue
+      case " ${covered[$repo]:-} " in
+        *" $skill "*) ;;  # 既に記録済み
+        *) covered["$repo"]="${covered[$repo]:-}${covered[$repo]:+ }$skill" ;;
+      esac
     done
   done
 fi
 
-# 2. clone 済み repo を走査して stale / uncovered を仕分け
-stale=()
+# 2. clone 済み repo を走査し、covered に居ない repo を uncovered とする。
 uncovered=()
 for parent in $SCAN_DIRS; do
   [ -d "$parent" ] || continue
@@ -56,31 +67,18 @@ for parent in $SCAN_DIRS; do
     [ -d "${d}.git" ] || continue
     repo="$(basename "$d")"
     case "$IGNORE" in *" $repo "*) continue ;; esac
-    if [ -n "${covered[$repo]:-}" ]; then
-      # --verify -q: 空 repo (HEAD 無し) は何も出さず非ゼロ → cur="" で鮮度比較スキップ。
-      # 素朴な `rev-parse 'HEAD^{tree}'` は失敗時に literal "HEAD^{tree}" を stdout に
-      # 出すため、empty-tree-sha の placeholder map を stale 誤検出してしまう (それを回避)。
-      cur="$(git -C "$d" rev-parse --verify -q 'HEAD^{tree}' 2>/dev/null)"
-      [ -n "$cur" ] && [ "${covered[$repo]}" != "$cur" ] && stale+=("$repo")
-    else
-      uncovered+=("$repo")
-    fi
+    [ -n "${covered[$repo]:-}" ] || uncovered+=("$repo")
   done
 done
 
-if [ ${#stale[@]} -eq 0 ] && [ ${#uncovered[@]} -eq 0 ]; then
-  emit "skill-coverage: 全 attached repo に generated-from 付き skill あり / 鮮度 OK"
+if [ ${#uncovered[@]} -eq 0 ]; then
+  emit "skill-coverage: 全 attached repo に対応 map skill あり"
   exit 0
 fi
 
-msg="skill coverage / 鮮度チェック (cross-repo-symbol-index skill):"
-if [ ${#uncovered[@]} -gt 0 ]; then
-  msg="${msg}"$'\n'"⚠ 対応 skill が無い repo (${#uncovered[@]}): ${uncovered[*]}"
-  msg="${msg}"$'\n'"  → 構造を把握したい repo は、その場でローカル ctags しつつ skill 化すると良い"
-  msg="${msg}"$'\n'"    (skill に generated-from: <repo>:<tree-sha> を付ければ以後 鮮度も追える)"
-fi
-if [ ${#stale[@]} -gt 0 ]; then
-  msg="${msg}"$'\n'"⚠ code が変わったのに追従してない skill の対象 repo (${#stale[@]}): ${stale[*]}"
-  msg="${msg}"$'\n'"  → 該当 skill を再生成し generated-from の tree-sha を更新する"
-fi
+msg="skill coverage (cross-repo-symbol-index skill):"
+msg="${msg}"$'\n'"⚠ 対応 map skill が無い repo (${#uncovered[@]}): ${uncovered[*]}"
+msg="${msg}"$'\n'"  → repo-map skill でローカル ctags しつつ <repo>-map を作ると良い"
+msg="${msg}"$'\n'"    (frontmatter に generated-from: <repo>:<commit-sha> + paths: [...] を付ける。"
+msg="${msg}"$'\n'"     code↔map の鮮度は skills-check CI が PR で見る)"
 emit "$msg"
