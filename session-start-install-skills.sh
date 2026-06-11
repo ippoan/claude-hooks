@@ -14,7 +14,9 @@
 #
 # Conflict policy: ippoan/claude-skills wins over anthropics/skills
 #   when both define a skill with the same name (ippoan is processed first,
-#   anthropic is only linked into slots that are still empty).
+#   anthropic is only linked into slots that are still empty). Attached repos'
+#   own co-located maps (`<repo>/.claude/skills/`, ippoan/claude-skills#59) are
+#   linked last and win over the sources checkouts (live, co-located map).
 #
 # Network policy — `CLAUDE_HOOKS_INSTALL_NETWORK`:
 #   - `off` (recommended for CCoW): never invoke git. Only re-link skills.
@@ -128,6 +130,58 @@ link_skills_from() {
 link_skills_from "${SOURCES_DIR}/claude-skills"    1
 link_skills_from "${SOURCES_DIR}/anthropic-skills" 0
 
+# Cross-repo co-located maps (ippoan/claude-skills#59): attached repos now carry
+# their own `<repo>/.claude/skills/<repo>-map/` so the map updates in the same PR
+# as the code. Symlink those into ~/.claude/skills too, so while working on
+# repo A you can still grep repo B's map.
+#
+# Conflict policy: **attached repo wins** over the sources checkouts (it is the
+# live, co-located map). We re-point existing symlinks and log the override;
+# non-symlink (hand-managed) targets are skipped + logged.
+#
+# Source repos themselves (claude-skills / claude-hooks) are consumed via
+# ~/.claude/sources, so their attached checkouts are skipped here to avoid churn.
+CROSS_REPO_SCAN_DIRS="${CLAUDE_HOOKS_SCAN_DIRS:-/home/user}"
+cross_linked=0
+cross_override=0
+
+link_attached_repo_skills() {
+  local parent repo_dir repo skills_root skill_md skill_dir skill_name target cur
+  for parent in $CROSS_REPO_SCAN_DIRS; do
+    [[ -d "$parent" ]] || continue
+    for repo_dir in "$parent"/*/; do
+      [[ -d "${repo_dir}.git" ]] || continue
+      skills_root="${repo_dir}.claude/skills"
+      [[ -d "$skills_root" ]] || continue
+      repo="$(basename "$repo_dir")"
+      case "$repo" in
+        claude-skills|claude-hooks|anthropic-skills) continue ;;
+      esac
+      while IFS= read -r -d '' skill_md; do
+        skill_dir="$(dirname "$skill_md")"
+        skill_name="$(basename "$skill_dir")"
+        target="${SKILLS_DIR}/${skill_name}"
+        if [[ -L "$target" ]]; then
+          cur="$(readlink "$target")"
+          if [[ "$cur" != "$skill_dir" ]]; then
+            ln -sfn "$skill_dir" "$target"
+            cross_override=$((cross_override + 1))
+            log "override ${skill_name} → ${repo}/.claude/skills (attached repo wins)"
+          fi
+        elif [[ ! -e "$target" ]]; then
+          ln -s "$skill_dir" "$target"
+          cross_linked=$((cross_linked + 1))
+        else
+          skipped_conflict=$((skipped_conflict + 1))
+          log "skip ${skill_name} from ${repo} (non-symlink target, hand-managed)"
+        fi
+      done < <(find "$skills_root" -name SKILL.md -print0 2>/dev/null)
+    done
+  done
+}
+
+link_attached_repo_skills
+
 [[ "$NETWORK_POLICY" == "force" ]] && date +%s > "$marker" 2>/dev/null || true
 
 ctx_lines=()
@@ -139,6 +193,9 @@ for line in "${log_lines[@]}"; do
   ctx_lines+=("- ${line}")
 done
 ctx_lines+=("- skills linked: ${linked} into ${SKILLS_DIR}")
+if (( cross_linked > 0 || cross_override > 0 )); then
+  ctx_lines+=("- cross-repo maps: ${cross_linked} linked, ${cross_override} overrode sources (attached repo wins)")
+fi
 if (( skipped_conflict > 0 )); then
   ctx_lines+=("- skipped ${skipped_conflict} non-symlink target(s) under ${SKILLS_DIR} (already managed manually)")
 fi
