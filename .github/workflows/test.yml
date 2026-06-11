@@ -13,7 +13,9 @@ jobs:
   ci:
     uses: ippoan/ci-workflows/.github/workflows/shell-ci.yml@main
     with:
-      test_script: tests/test-worktree-naming-guard.sh
+      # 全 tests/test-*.sh を回す aggregator (worktree-naming は gh 必須なので
+      # test_needs_gh は維持)
+      test_script: tests/run-all.sh
       test_needs_gh: true
       # SC1091: source の解決失敗を無視 (CI には sourced files が無い)
       # SC2155: declare + assign in one line
