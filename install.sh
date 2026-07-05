@@ -171,6 +171,10 @@ register_all_session_hooks
 #    両プラットフォームとも rename 不可 + alias は rotation 2 重 bump で drift する
 #    ため、名前は揃えず規約で固定し違反を Edit/Write 時点で気付かせ随時修正する
 #    (Refs ippoan/secrets-inventory#23).
+#  - pre-push-repo-checks.sh (Bash matcher) — repo toplevel に
+#    scripts/pre-push-checks.sh があれば `git push` 前に実行し、fail なら deny。
+#    bazel BUILD 配線漏れ等「cargo では捕まらず CI まで漏れる」検査をローカル
+#    数秒で止める repo opt-in の汎用フック (Refs ippoan/rust-alc-api#539)。
 #  - pr-push-allowlist-guard.sh (Bash matcher) — blocks `pr-push.sh` 起動を
 #    repo が wt-direct-push allowlist (config/direct-push-ok.txt) に登録済の時
 #    deny し /wt-direct-push に誘導する。allowlist repo は branch protection /
@@ -221,6 +225,11 @@ register_pretooluse_hooks() {
       matcher: "Bash",
       command: "$HOME/.claude/sources/claude-hooks/pr-push-allowlist-guard.sh",
       timeout: 5
+    },
+    {
+      matcher: "Bash",
+      command: "$HOME/.claude/sources/claude-hooks/pre-push-repo-checks.sh",
+      timeout: 60
     }
   ]')
 
@@ -248,7 +257,7 @@ register_pretooluse_hooks() {
       }]
     }))
   ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
-  echo "  ✓ registered PreToolUse hooks in ${SETTINGS_FILE} (open-multirepo guard, clone guard, proxy-push guard, pr-rebase guard, pr-refs-link guard, secret-naming guard, pr-push-allowlist guard)"
+  echo "  ✓ registered PreToolUse hooks in ${SETTINGS_FILE} (open-multirepo guard, clone guard, proxy-push guard, pr-rebase guard, pr-refs-link guard, secret-naming guard, pr-push-allowlist guard, pre-push-repo-checks)"
 }
 register_pretooluse_hooks
 
