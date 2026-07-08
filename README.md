@@ -72,6 +72,7 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 |---|---|
 | `pre-pr-rebase-guard.sh` | head branch が `origin/<base>` より遅れた (out-of-date) まま PR を作るのを **deny**。`post-push-rebase-check.sh` の非ブロッキング警告を無視して PR を立て、GitHub で "This branch is out-of-date with the base branch" になる事故を防ぐ。pre-clone 不在 / fetch 不能 / head ref 不在は誤 block 回避で素通し |
 | `pr-refs-link-guard.sh` | **PR title** に issue 参照 (`Refs #N` / `Related to #N` / `Part of #N` / cross-repo `Refs owner/repo#N` / issue URL) が無ければ `create_pull_request` を **deny**。title 必須なのは squash-merge の commit subject に必ず載せ、ci-dashboard の tag→Refs 逆引き (tagged commit の message 走査) から漏れさせないため — body だけの `Refs` は squash 設定次第で commit から落ちる (実例: auth-worker#315)。issue↔PR の紐付けを強制し close 漏れ・追跡漏れを防ぐ (Refs ippoan/HealthConnectReader#14/#16/#18)。issue を持たない PR は title/body に `[no-issue]` で opt-out |
+| `pr-ci-shape-guard.sh` | owner が `ippoan`/`ohishi-exp` の PR で、head branch に `ci-shape-report.yml` (or `ci-shape-report-self.yml`) caller が無ければ `create_pull_request` を **deny**。ci-dashboard `/ci-matrix` は caller 未導入 repo を一覧から silent に除外するだけで気付けないため (Refs ippoan/ci-dashboard#393)。ローカル pre-clone 不在 / head ref 不在は誤 block 回避で素通し。意図的に不要な repo は title/body に `[no-ci-shape]` で opt-out |
 
 ### PostToolUse — Bash matcher
 
