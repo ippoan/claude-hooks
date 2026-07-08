@@ -15,7 +15,7 @@ curl -fsSL https://raw.githubusercontent.com/ippoan/claude-hooks/main/install.sh
 これだけで、container 作成時に以下が一気に実行される:
 
 1. `~/.claude/sources/{claude-hooks,claude-skills}` を shallow clone
-2. `~/.claude/skills/<name>` に skill を symlink
+2. `~/.claude/skills/<name>` に skill を、`~/.claude/agents/<name>.md` に agent を symlink
 3. `~/.claude/settings.json` に `session-start-install-skills.sh` を `CLAUDE_HOOKS_INSTALL_NETWORK=off` 付きで登録
 
 以降の session 開始 hook は **完全に network を叩かない** ので、CCoW proxy の allowlist 502 を踏まない。`~/.claude/sources/*` が消えた時 (= container 再生成) は、Setup script が再走するので自然に修復される。
@@ -90,7 +90,7 @@ CLAUDE_HOOKS_SKIP_SETTINGS=1 bash install.sh
 |---|---|
 | `session-start-memory-baseline.sh` | 前 session 以降に memory file が増えていれば警告 |
 | `session-start-sandbox-hint.sh` | Backend + Frontend 同時改修 (Incus + wt-quick) workflow hint を inject |
-| `session-start-install-skills.sh` | `ippoan/claude-hooks` + `ippoan/claude-skills` を `~/.claude/sources/` に shallow clone + skill を `~/.claude/skills/<name>` に symlink (TTL 1h、idempotent) |
+| `session-start-install-skills.sh` | `ippoan/claude-hooks` + `ippoan/claude-skills` を `~/.claude/sources/` に shallow clone + skill を `~/.claude/skills/<name>`・agent を `~/.claude/agents/<name>.md` に symlink (TTL 1h、idempotent) |
 | `session-start-stale-skills-check.sh` | `~/.claude/sources/*` と `/home/user/*` の git origin を走査し、`yhonda-ohishi/claude-skills` を指している stale checkout があれば `remote set-url` reseat コマンドを inject (clean なら 1 行報告のみ、移行 phase-out 後に削除可) |
 | `session-start-repo-delta.sh` | 前回 session 以降の各 repo の変更を注入。marker (`~/.claude/.repo-delta-heads`) に HEAD sha を記録し、次回 `git log --oneline` + diff hunk header 由来の**変更 symbol 名**を repo ごとに additionalContext へ。fresh container は直近 commit 1 行に degrade。保存型台帳を持たない (git から都度生成)。Refs ippoan/claude-md#76 |
 | `session-start-source-mirror-check.sh` | ファイル先頭 5 行以内の `SOURCE-MIRROR: <repo>:<path>` 宣言を走査し、canonical と内容 hash 比較 (宣言行除外)。ズレたら warning。宣言済みコピー限定なので誤検知ゼロ。Refs ippoan/claude-md#76 |
@@ -237,12 +237,16 @@ jobs:
 
 ### 仕様
 
-SessionStart 時に `ippoan/claude-skills` と `ippoan/claude-hooks` を `~/.claude/sources/` に shallow clone (or `git pull --ff-only`) し、claude-skills 内の各 `SKILL.md` を `~/.claude/skills/<skill-name>` に symlink する。
+SessionStart 時に `ippoan/claude-skills` と `ippoan/claude-hooks` を `~/.claude/sources/` に shallow clone (or `git pull --ff-only`) し、claude-skills 内の各 `SKILL.md` を `~/.claude/skills/<skill-name>` に、`.claude/agents/*.md` を `~/.claude/agents/<name>.md` に symlink する。
 
 - **配置先**:
   - sources: `~/.claude/sources/{claude-skills,claude-hooks}` (shallow git checkout)
   - skill symlinks: `~/.claude/skills/<name>` → `~/.claude/sources/claude-skills/.../<name>`
-- **idempotent**: 既存 checkout は `git pull --ff-only`、既存 symlink は再 link、既存の非 symlink (= ユーザが手書きした skill) は触らない
+  - agent symlinks: `~/.claude/agents/<name>.md` → `~/.claude/sources/claude-skills/.claude/agents/<name>.md`
+    (これで claude-skills が workspace に clone されていない単独 repo セッションでも
+    共有 sub-agent が解決できる。attached repo が独自の `.claude/agents/*.md` を持つ場合は
+    skill map と同様に attached 側が優先)
+- **idempotent**: 既存 checkout は `git pull --ff-only`、既存 symlink は再 link、既存の非 symlink (= ユーザが手書きした skill/agent) は触らない
 - **TTL**: 既定 1h (`CLAUDE_HOOKS_INSTALL_TTL` 秒で上書き)。TTL 内は network sync を skip し、symlink 更新のみ実施
 - **fail-open**: clone/pull 失敗時もセッションは継続 (additionalContext にエラー記録)
 - **hook 側 settings.json は変更しない**: hooks の登録は `~/.claude/settings.json` を user が手動で編集する (既存方針のまま)

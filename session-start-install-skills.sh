@@ -35,6 +35,7 @@ set -euo pipefail
 CLAUDE_DIR="${HOME}/.claude"
 SOURCES_DIR="${CLAUDE_DIR}/sources"
 SKILLS_DIR="${CLAUDE_DIR}/skills"
+AGENTS_DIR="${CLAUDE_DIR}/agents"
 MARKER_DIR="${CLAUDE_DIR}/.install-skills-marker"
 TTL_SECONDS="${CLAUDE_HOOKS_INSTALL_TTL:-3600}"
 NETWORK_POLICY="${CLAUDE_HOOKS_INSTALL_NETWORK:-auto}"
@@ -46,7 +47,7 @@ ANTHROPIC_SKILLS_REPO_URL="${CLAUDE_HOOKS_ANTHROPIC_SKILLS_URL:-https://github.c
 log_lines=()
 log() { log_lines+=("$1"); }
 
-mkdir -p "$SOURCES_DIR" "$SKILLS_DIR" "$MARKER_DIR"
+mkdir -p "$SOURCES_DIR" "$SKILLS_DIR" "$AGENTS_DIR" "$MARKER_DIR"
 
 # `force` mode honours the TTL marker; `auto` / `off` ignore it (no pulls).
 marker="${MARKER_DIR}/last-run"
@@ -182,6 +183,84 @@ link_attached_repo_skills() {
 
 link_attached_repo_skills
 
+# ---------------------------------------------------------------------------
+# Agents: claude-skills also ships reusable sub-agent defs under
+# .claude/agents/*.md. Mirror the skill-linking above so they become
+# **user-level agents** (~/.claude/agents/<name>.md), available in EVERY
+# session — including single-repo sessions where claude-skills is not one of
+# the attached workspace repos. Without this, agents only resolve when
+# claude-skills happens to be checked out in the workspace.
+# ---------------------------------------------------------------------------
+agents_linked=0
+agents_override=0
+agents_skipped=0
+
+# args: <agents-source-dir> <allow-relink: 1|0>
+#   allow-relink=1 → re-point existing symlinks (claude-skills owns the slot).
+#   allow-relink=0 → only create when slot is empty (never clobber overrides).
+link_agents_from() {
+  local source_dir="$1" allow_relink="$2"
+  [[ -d "$source_dir" ]] || return 0
+  local agent_md agent_name target
+  while IFS= read -r -d '' agent_md; do
+    agent_name="$(basename "$agent_md")"
+    target="${AGENTS_DIR}/${agent_name}"
+    if [[ -L "$target" ]]; then
+      if (( allow_relink == 1 )); then
+        ln -sfn "$agent_md" "$target"
+        agents_linked=$((agents_linked + 1))
+      fi
+    elif [[ ! -e "$target" ]]; then
+      ln -s "$agent_md" "$target"
+      agents_linked=$((agents_linked + 1))
+    else
+      agents_skipped=$((agents_skipped + 1))
+    fi
+  done < <(find "$source_dir" -maxdepth 1 -name '*.md' -print0 2>/dev/null)
+}
+
+# Attached repos may also carry their own .claude/agents/*.md (co-located,
+# same model as cross-repo maps). Attached repo wins over the sources checkout;
+# non-symlink (hand-managed) targets are skipped + logged. Source repos
+# (claude-skills / claude-hooks / anthropic-skills) are consumed via
+# ~/.claude/sources, so their attached checkouts are skipped to avoid churn.
+link_attached_repo_agents() {
+  local parent repo_dir repo agents_root agent_md agent_name target cur
+  for parent in $CROSS_REPO_SCAN_DIRS; do
+    [[ -d "$parent" ]] || continue
+    for repo_dir in "$parent"/*/; do
+      [[ -d "${repo_dir}.git" ]] || continue
+      agents_root="${repo_dir}.claude/agents"
+      [[ -d "$agents_root" ]] || continue
+      repo="$(basename "$repo_dir")"
+      case "$repo" in
+        claude-skills|claude-hooks|anthropic-skills) continue ;;
+      esac
+      while IFS= read -r -d '' agent_md; do
+        agent_name="$(basename "$agent_md")"
+        target="${AGENTS_DIR}/${agent_name}"
+        if [[ -L "$target" ]]; then
+          cur="$(readlink "$target")"
+          if [[ "$cur" != "$agent_md" ]]; then
+            ln -sfn "$agent_md" "$target"
+            agents_override=$((agents_override + 1))
+            log "override agent ${agent_name} → ${repo}/.claude/agents (attached repo wins)"
+          fi
+        elif [[ ! -e "$target" ]]; then
+          ln -s "$agent_md" "$target"
+          agents_linked=$((agents_linked + 1))
+        else
+          agents_skipped=$((agents_skipped + 1))
+          log "skip agent ${agent_name} from ${repo} (non-symlink target, hand-managed)"
+        fi
+      done < <(find "$agents_root" -maxdepth 1 -name '*.md' -print0 2>/dev/null)
+    done
+  done
+}
+
+link_agents_from "${SOURCES_DIR}/claude-skills/.claude/agents" 1
+link_attached_repo_agents
+
 [[ "$NETWORK_POLICY" == "force" ]] && date +%s > "$marker" 2>/dev/null || true
 
 ctx_lines=()
@@ -198,6 +277,13 @@ if (( cross_linked > 0 || cross_override > 0 )); then
 fi
 if (( skipped_conflict > 0 )); then
   ctx_lines+=("- skipped ${skipped_conflict} non-symlink target(s) under ${SKILLS_DIR} (already managed manually)")
+fi
+ctx_lines+=("- agents linked: ${agents_linked} into ${AGENTS_DIR}")
+if (( agents_override > 0 )); then
+  ctx_lines+=("- agents: ${agents_override} overrode sources (attached repo wins)")
+fi
+if (( agents_skipped > 0 )); then
+  ctx_lines+=("- skipped ${agents_skipped} non-symlink agent target(s) under ${AGENTS_DIR}")
 fi
 ctx_lines+=("- hooks checkout: ${SOURCES_DIR}/claude-hooks")
 
