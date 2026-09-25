@@ -1,0 +1,1 @@
+{"session_id":"sess-1","transcript_path":"/home/u/.claude/projects/p/sess-1.jsonl","cwd":"/work/repo","permission_mode":"default","hook_event_name":"StopFailure","error":"invalid_request","last_assistant_message":"API Error: Opus 4.8's safeguards flagged this message. Our intentionally broad safeguards allow us to deliver more capabilities faster."}
