@@ -1,0 +1,1 @@
+{"session_id":"sess-1","transcript_path":"/home/u/.claude/projects/p/sess-1.jsonl","cwd":"/work/repo","permission_mode":"default","hook_event_name":"StopFailure","error":"unknown","last_assistant_message":"API Error: Opus 5 has safety measures that flagged this message for a cybersecurity topic."}

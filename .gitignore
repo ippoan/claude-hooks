@@ -2,3 +2,4 @@
 claude-signal
 claude-notifier-active.d/
 permission-alerts.log
+.claude/logs/
